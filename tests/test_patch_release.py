@@ -3,11 +3,14 @@ import hashlib
 import json
 from pathlib import Path
 import tempfile
+import os
+import subprocess
+import tarfile
 import unittest
 from unittest.mock import patch
 import zipfile
 from tools.build_patch_release import (
-    BINARY_DESTINATIONS, FRAMEGEN_DESTINATIONS, FRAMEGEN_NOTICES, FRAMEGEN_DXVK_LICENSE, SOURCE_FILES, SOURCE_ONLY_FILES, build_release, prepare_payload, safe_name)
+    BINARY_DESTINATIONS, LINUX_SOURCE_ONLY_FILES, FRAMEGEN_DESTINATIONS, FRAMEGEN_NOTICES, FRAMEGEN_DXVK_LICENSE, SOURCE_FILES, SOURCE_ONLY_FILES, build_release, prepare_payload, safe_name)
 
 
 def sha(data): return hashlib.sha256(data).hexdigest()
@@ -37,6 +40,127 @@ class PatchReleaseTests(unittest.TestCase):
             write(source, data)
             entries.append({'source': source, 'role': role, 'sha256': sha(data), 'notices': ['licenses/own.txt']})
         return {'files': entries}, {'files': [{'sha256': sha(b'ORIGINAL GAME BYTES')}]}
+
+    def linux_fixture(self, root, *, abi_failure=False):
+        reviewed, inventory = self.fixture(root)
+        reviewed['platform'] = 'linux'
+        reviewed['files'] = [item for item in reviewed['files'] if
+            'destination' not in item or item['destination'].startswith(('licenses/', 'runtime/input/'))]
+        for name in LINUX_SOURCE_ONLY_FILES + ('docs/linux.md',):
+            path = root / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'Own Linux documentation')
+        for name in ('portable/TopSpinLauncher.sh', 'portable/Play-TopSpin.sh'):
+            (root / name).write_bytes(b'#!/bin/sh\nexit 0\n')
+        lua = next(item for item in reviewed['files'] if item.get('role') == 'lua')
+        (root / lua['source']).write_bytes(b'\x7fELFsynthetic-linux-lua'); lua['sha256'] = sha(b'\x7fELFsynthetic-linux-lua')
+        runtime = {'gamescope': 'runtime/linux/bin/gamescope', 'afmf_layer': 'runtime/linux/afmf',
+            'video_libraries': ['runtime/linux/lib64/libvideo.so'],
+            'video_plugins': 'runtime/linux/gstreamer-1.0', 'library_path': 'runtime/linux/lib64'}
+        data = {
+            'runtime/python/bin/python3': b'#!/bin/sh\nprintf "%s\\n" "$PYTHONHOME" "$PYTHONPATH" "$LD_LIBRARY_PATH" "$@" > "$PATCH_TEST_MARKER"\nprintf \'{"metadata":true}\\n\'\nprintf \'synthetic diagnostic\\n\' >&2\nexit "${PATCH_TEST_FAIL:-0}"\n',
+            'runtime/linux/check-abi.sh': b'#!/bin/sh\nexit ' + (b'1' if abi_failure else b'0') + b'\n',
+            'runtime/linux/bin/gamescope': b'#!/bin/sh\nexit 0\n',
+            'runtime/linux/lib64/libvideo.so': b'\x7fELFsynthetic-video-library',
+            'runtime/linux/gstreamer-1.0/libgstvideo.so': b'\x7fELFsynthetic-plugin',
+            'runtime/linux/afmf/libafmf-linux.so': b'\x7fELFsynthetic-interpolation',
+            'runtime/linux/afmf/afmf-linux.json': json.dumps({'layer': {
+                'name': 'VK_LAYER_AFMF', 'library_path': './libafmf-linux.so'}}).encode(),
+            'runtime/python/lib64/python3.14/urllib/__init__.py': b'',
+            'runtime/python/lib64/python3.14/site-packages/PIL/py.typed': b'',
+            '.portable/runtime.json': json.dumps(runtime).encode(),
+        }
+        for index, (destination, payload) in enumerate(data.items()):
+            source = 'build/reviewed/linux-' + str(index) + '.bin'
+            (root / source).write_bytes(payload)
+            if destination == 'runtime/linux/bin/gamescope': (root / source).chmod(0o755)
+            executable = destination in ('runtime/python/bin/python3', 'runtime/linux/check-abi.sh')
+            reviewed['files'].append({'source': source, 'destination': destination, 'sha256': sha(payload),
+                'notices': ['licenses/own.txt'], **({'executable': True} if executable else {})})
+        return reviewed, inventory
+
+    def test_linux_tar_contains_only_regular_staged_files_and_safe_executable_modes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); reviewed, inventory = self.linux_fixture(root)
+            destination = root / 'linux.tar.gz'
+            build_release(root, destination, reviewed, inventory)
+            with tarfile.open(destination) as archive:
+                members = archive.getmembers()
+                self.assertTrue(all(member.isfile() and member.uid == member.gid == 0 for member in members))
+                self.assertTrue(all(member.name == 'Install-Patch.sh' or member.name.startswith('.topspin-patch/') for member in members))
+                names = {member.name for member in members}
+                self.assertNotIn('Install-Patch.cmd', names)
+                self.assertFalse(any(name.endswith(('.cmd', '.exe')) for name in names))
+                manifest = json.load(archive.extractfile('.topspin-patch/manifest.json'))
+                self.assertEqual(manifest['platform'], 'linux')
+                self.assertTrue(manifest['files']['runtime/linux/bin/gamescope']['executable'])
+                self.assertEqual(archive.extractfile('.topspin-patch/files/runtime/python/lib64/python3.14/urllib/__init__.py').read(), b'')
+                self.assertEqual(archive.extractfile('.topspin-patch/files/runtime/python/lib64/python3.14/site-packages/PIL/py.typed').read(), b'')
+                self.assertIn('files/Linux-Readme.md', [item['path'] for item in manifest['files'].values()])
+                for member in members:
+                    expected = (member.name == 'Install-Patch.sh' or member.name == '.topspin-patch/' + manifest['lua']['path'] or
+                        any(member.name == '.topspin-patch/' + item['path'] and item.get('executable') for item in manifest['files'].values()))
+                    self.assertEqual(member.mode, 0o755 if expected else 0o644)
+
+    def test_linux_installer_preflight_runs_before_interpreter_and_uses_only_bundled_paths(self):
+        for failed in (False, True):
+            with self.subTest(abi_failure=failed), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder); reviewed, inventory = self.linux_fixture(root, abi_failure=failed)
+                destination = root / 'linux.tar.gz'; build_release(root, destination, reviewed, inventory)
+                install = root / 'Installed Game'; install.mkdir()
+                marker = root / 'python-was-run.txt'
+                with tarfile.open(destination) as archive: archive.extractall(install, filter='data')
+                result = subprocess.run([str(install / 'Install-Patch.sh'), '--check'],
+                    env={**os.environ, 'PATCH_TEST_MARKER': str(marker)}, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1 if failed else 0, result.stderr)
+                self.assertEqual(marker.exists(), not failed)
+                if not failed:
+                    output = marker.read_text()
+                    self.assertIn(str(install / '.topspin-patch/files/runtime/python'), output)
+                    self.assertIn(str(install / '.topspin-patch/files/runtime/python/lib64'), output)
+                    self.assertIn('tools.install_patch', output)
+                    self.assertIn('--check', output)
+
+    def test_linux_wrapper_shows_friendly_results_and_keeps_metadata_in_private_log(self):
+        for check_only, fail in ((False, False), (True, False), (False, True)):
+            with self.subTest(check_only=check_only, fail=fail), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder); reviewed, inventory = self.linux_fixture(root)
+                destination = root / 'linux.tar.gz'; build_release(root, destination, reviewed, inventory)
+                install = root / 'Existing Game'; install.mkdir()
+                with tarfile.open(destination) as archive: archive.extractall(install, filter='data')
+                result = subprocess.run([str(install / 'Install-Patch.sh')] + (['--check'] if check_only else []),
+                    env={**os.environ, 'PATCH_TEST_MARKER': str(root / 'marker'),
+                         'PATCH_TEST_FAIL': '7' if fail else '0'}, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 7 if fail else 0)
+                self.assertIn('Preparing the Top Spin patch.', result.stdout)
+                log = (install / '.topspin-patch/install.log').read_text()
+                self.assertIn('{"metadata":true}', log)
+                self.assertIn('synthetic diagnostic', log)
+                self.assertNotIn('metadata', result.stdout)
+                if fail:
+                    self.assertIn('{"metadata":true}', result.stderr)
+                    self.assertIn('Patch installation failed.', result.stderr)
+                    self.assertNotIn('successfully', result.stdout)
+                elif check_only:
+                    self.assertIn('Patch validated successfully. No game files were changed.', result.stdout)
+                    self.assertEqual(result.stderr, '')
+                else:
+                    self.assertIn('Patch installed successfully. Open TopSpinLauncher.sh', result.stdout)
+                    self.assertEqual(result.stderr, '')
+
+    def test_linux_rejects_windows_files_bad_runtime_and_unsafe_modes_before_archive(self):
+        for mutation in ('windows', 'missing_python', 'mode_type', 'execute_json', 'bad_runtime'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder); reviewed, inventory = self.linux_fixture(root)
+                item = next(entry for entry in reviewed['files'] if entry.get('destination') == '.portable/runtime.json')
+                if mutation == 'windows': item['destination'] = 'runtime/windows-framegen/afmf32.dll'
+                elif mutation == 'missing_python':
+                    reviewed['files'] = [entry for entry in reviewed['files'] if entry.get('destination') != 'runtime/python/bin/python3']
+                elif mutation == 'mode_type': item['executable'] = 'true'
+                elif mutation == 'execute_json': item['executable'] = True
+                else:
+                    (root / item['source']).write_bytes(b'{}'); item['sha256'] = sha(b'{}')
+                destination = root / 'blocked.tar.gz'
+                with self.assertRaises(ValueError): build_release(root, destination, reviewed, inventory)
+                self.assertFalse(destination.exists())
 
     def framegen_fixture(self, root, reviewed, mutation=None):
         manifest_name = '.portable/windows-framegen.json'

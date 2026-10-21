@@ -350,6 +350,88 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual((self.root/installer.RECEIPT).read_bytes(), before)
         self.assertEqual((self.root/'launcher/gui.py').read_bytes(), b'old own launcher')
 
+    def linux_payload_fixture(self):
+        payload = self.upgrade_fixture()
+        manifest = json.loads((payload/'manifest.json').read_text())
+        manifest['platform'] = 'linux'
+        manifest['files'] = {name: record for name, record in manifest['files'].items()
+                             if name != 'd3d8.dll' and not name.startswith('runtime/windows-framegen/')
+                             and not name.startswith('.portable/windows-')}
+        files = {'runtime/linux/bin/gamescope': b'#!/bin/sh\nexit 0\n',
+                 'runtime/linux/gstreamer-1.0/video.so': b'own test plugin',
+                 'runtime/linux/lib64/video.so': b'own test library',
+                 'runtime/linux/afmf/libafmf-linux.so': b'own test layer',
+                 'runtime/linux/afmf/afmf-linux.json': installer.json_bytes(
+                     {'layer': {'name': 'VK_LAYER_AFMF', 'library_path': './libafmf-linux.so'}}),
+                 'Play-TopSpin.sh': b'#!/bin/sh\nexit 0\n',
+                 'TopSpinLauncher.sh': b'#!/bin/sh\nexit 0\n'}
+        runtime = {'gamescope': 'runtime/linux/bin/gamescope',
+                   'afmf_layer': 'runtime/linux/afmf',
+                   'video_libraries': ['runtime/linux/lib64/video.so'],
+                   'video_plugins': 'runtime/linux/gstreamer-1.0',
+                   'library_path': 'runtime/linux/lib64'}
+        files['.portable/runtime.json'] = installer.json_bytes(runtime)
+        for name, raw in files.items():
+            path = payload/'files'/name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            descriptor = {'path': 'files/'+name, 'sha256': hashlib.sha256(raw).hexdigest()}
+            if name.endswith('.sh') or name == 'runtime/linux/bin/gamescope':
+                descriptor['executable'] = True
+            manifest['files'][name] = descriptor
+        (payload/'manifest.json').write_text(json.dumps(manifest))
+        return payload
+
+    def test_linux_payload_validates_runtime_without_windows_wrapper(self):
+        payload = self.linux_payload_fixture()
+        files, stubs, lua, manifest_hash, platform, executables = installer.validated_payload(self.root, payload)
+        self.assertEqual(platform, 'linux')
+        self.assertNotIn('d3d8.dll', files)
+        self.assertIn('.portable/runtime.json', files)
+        self.assertEqual(set(executables), {'Play-TopSpin.sh', 'TopSpinLauncher.sh',
+                                            'runtime/linux/bin/gamescope'})
+        self.assertEqual(set(stubs), {'input', 'save_drives', 'options_delete'})
+
+    def test_linux_payload_retains_real_empty_python_package_initializers(self):
+        payload = self.linux_payload_fixture()
+        manifest = json.loads((payload/'manifest.json').read_text())
+        name = 'runtime/python/lib64/python3.14/urllib/__init__.py'
+        source = payload/'files'/name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b'')
+        manifest['files'][name] = {'path': 'files/'+name, 'sha256': hashlib.sha256(b'').hexdigest()}
+        (payload/'manifest.json').write_text(json.dumps(manifest))
+        marker = 'runtime/python/lib64/python3.14/site-packages/PIL/py.typed'
+        source = payload/'files'/marker
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(b'')
+        manifest['files'][marker] = {'path': 'files/'+marker, 'sha256': hashlib.sha256(b'').hexdigest()}
+        (payload/'manifest.json').write_text(json.dumps(manifest))
+        files, *_ = installer.validated_payload(self.root, payload)
+        self.assertEqual(files[name], b'')
+        self.assertEqual(files[marker], b'')
+
+    def test_cross_platform_upgrade_is_rejected_before_writes(self):
+        payload = self.linux_payload_fixture()
+        before = (self.root/installer.RECEIPT).read_bytes()
+        with patch.object(installer, 'WINDOWS_SHA256', hashlib.sha256((self.root/'TopSpin.exe').read_bytes()).hexdigest()):
+            with self.assertRaisesRegex(ValueError, 'platform'):
+                installer.plan_install(self.root, payload)
+        self.assertEqual((self.root/installer.RECEIPT).read_bytes(), before)
+
+    @unittest.skipIf(__import__('os').name == 'nt', 'POSIX executable modes')
+    def test_linux_transaction_sets_only_reviewed_own_executable_modes(self):
+        (self.root/'TopSpin.exe').chmod(0o640)
+        script = b'#!/bin/sh\nexit 0\n'
+        installer.apply_changes(self.root, {'TopSpin.exe': b'patched game',
+                                           'Play-TopSpin.sh': script,
+                                           'runtime/linux/bin/gamescope': script},
+                                {'platform': 'linux', 'executable_files': [
+                                    'Play-TopSpin.sh', 'runtime/linux/bin/gamescope']})
+        self.assertEqual((self.root/'TopSpin.exe').stat().st_mode & 0o777, 0o640)
+        self.assertEqual((self.root/'Play-TopSpin.sh').stat().st_mode & 0o777, 0o755)
+        self.assertEqual((self.root/'runtime/linux/bin/gamescope').stat().st_mode & 0o777, 0o755)
+
     def test_manifest_payload_hash_and_path_validation(self):
         payload = self.root/'payload'
         payload.mkdir()

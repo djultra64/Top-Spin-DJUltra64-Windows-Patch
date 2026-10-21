@@ -12,7 +12,7 @@ Use a folder your account can write to. Close the game and launcher before insta
 
 ## Install the release ZIP
 
-1. Download [TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.0/TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip) from [v0.2.0](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.2.0).
+1. Download [TopSpin-DJUltra64-Windows-Patch-v0.2.1.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Windows-Patch-v0.2.1.zip) from [v0.2.1](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.2.1).
 2. Extract its contents directly into the folder containing `TopSpin.exe`. Do not leave the patch inside an extra nested folder.
 3. Double-click **`Install-Patch.cmd`**. Wait for **Patch installed successfully**.
 4. Open **`TopSpinLauncher.exe`**, adjust settings if desired and select **Save settings** or **Play**.
@@ -33,7 +33,7 @@ Extraction stages installer files. The installer checks the executable, original
 
 Keep the backup and receipt. They can contain original game content and personal configuration, so do not upload them. The installer preserves the configuration's Security section and existing keyboard profiles and keeps existing `T`/`U` saves. Re-running the same installer recognizes an intact installation; it refuses to overwrite a conflicting backup or a modified installation.
 
-To upgrade from v0.1.0, extract the v0.2.0 ZIP into the same game folder and run `Install-Patch.cmd`. The upgrade preserves launcher preferences, game configuration/key, keyboard mappings, executable, generated game resources and saves. It updates the project/runtime components and keeps replaced files plus the previous receipt under `.portable/backups/topspin-patch-updates/<payload-sha256>`. Keep the original backup as well.
+To upgrade from Windows v0.1.0 or v0.2.0, extract the v0.2.1 ZIP into the same game folder and run `Install-Patch.cmd`. The upgrade preserves launcher preferences, game configuration/key, keyboard mappings, executable, generated game resources and saves. It updates the project/runtime components and keeps replaced files plus the previous receipt under `.portable/backups/topspin-patch-updates/<payload-sha256>`. Keep the original backup as well.
 
 ## Supported executable versions
 

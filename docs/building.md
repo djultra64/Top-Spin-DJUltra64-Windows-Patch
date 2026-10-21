@@ -2,7 +2,7 @@
 
 Own work: **djultra64**.
 
-For normal Windows installation, use [the release instructions](windows.md). This page covers source development and assembly of the public patch ZIP. A public patch archive contains project source and redistributable runtime components; complete extracted/portable game packages remain private.
+For normal installation, use the [Windows](windows.md) or [Linux / Proton](linux.md) release instructions. This page covers source development and assembly of the public platform archives. A public patch archive contains project source and redistributable runtime components; complete extracted/portable game packages remain private.
 
 ## Development requirements
 
@@ -24,7 +24,7 @@ The compatible executable hashes are listed in [Windows instructions](windows.md
 
 ```sh
 python -m tools.build_patch_release --help
-python -m tools.build_patch_release dist/TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip --reviewed-binaries /path/to/reviewed-binaries.json --original-inventory /path/to/private-source-inventory.json
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Windows-Patch-v0.2.1.zip --reviewed-binaries /path/to/reviewed-binaries.json --original-inventory /path/to/private-source-inventory.json
 ```
 
 Choose a fresh output path. The builder checks hashes, path safety, allowed destinations, required component roles, upstream notices and known original-game hashes. It rejects original game content and private game-data file types. Preserve the original-file inventory privately; do not publish it with the release.
@@ -40,6 +40,26 @@ python -m tools.install_patch --game-dir /path/to/compatible-private-game --payl
 ```
 
 The Lua compiler in the Windows release is a Windows executable; this command needs an environment that can execute that compiler. The Windows command entry point supplies the bundled interpreter automatically. `--check` still performs resource compilation in temporary storage.
+
+## Public Linux / Proton release assembly
+
+The same builder emits the Linux tar.gz when the reviewed manifest has `"platform": "linux"`. Supply an explicit reviewed list of Linux interpreter/Tk, Gamescope, Xwayland support, the coherent full video stack, Linux AFMF, compatible native Lua, controller DLLs and upstream notices. The public payload contains executable modes for scripts and ELF programs. Steam, Proton and GPU vendor drivers remain external.
+
+```sh
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Proton-Patch-v0.2.1.tar.gz --reviewed-binaries /path/to/reviewed-linux-binaries.json --original-inventory /path/to/private-source-inventory.json
+```
+
+Choose a fresh archive destination. The root contains the POSIX `Install-Patch.sh` and `.topspin-patch`; extraction preserves modes. The installer runs its ABI preflight before the bundled interpreter, performs the same version/resource checks and locally generates the game changes. A Linux payload/receipt is distinct from Windows, and cross-platform upgrades are rejected. No original executable, menu/font archive, key, save or private backup belongs in either public archive.
+
+To reproduce the Linux graphics runtime inputs, `tools.linux_runtime` expects an RPM-based host with `/usr/lib64`, Gamescope, Xwayland, GStreamer core/WMV plugins, XKB data, `ldd`, `readelf` and `rpm`, plus a separately built 64-bit Linux AFMF layer and its notices. Stage into a new private candidate:
+
+```sh
+python -m tools.linux_runtime /path/to/new-private-candidate --afmf /path/to/built/afmf-layer --video-profile all
+```
+
+The helper also needs `build/deps/video64/libbz2.so.1.0` and AFMF notices under `build/third-party/afmf-linux/unpacked/afmf-linux-1.3.1`. The release uses the coherent `all` video profile, not the reduced `wmv` development option. This staging command does not build the separate Python/Tk bundle or install executable hooks and generated game fonts; the reviewed release inventory must include the complete dependency set. See [runtime support](linux-runtime-support.md) for the glibc 2.42 ABI floor.
+
+The release also publishes [TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz) with corresponding Linux runtime dependency source. It is separate from the binary patch and unnecessary for normal installation. Preserve complete component notices under `runtime/linux/licenses` and `licenses/linux-runtime`.
 
 ## Build Windows launcher components
 
@@ -85,11 +105,11 @@ python -m tools.prepare_portable --source /path/to/local-media --destination dis
 python -m tools.verify_build --destination dist/Research-Candidate --inventory reports/source-inventory.json
 ```
 
-This older research path extracts a full private game, applies the basic compatibility settings and stages launcher source. It does not perform the complete public Windows install pipeline. Preparation rewrites its destination's executable/configuration; use a new candidate rather than your installed game or save-bearing package.
+This older research path extracts a full private game, applies the basic compatibility settings and stages launcher source. It does not perform the complete public platform install pipeline. Preparation rewrites its destination's executable/configuration; use a new candidate rather than your installed game or save-bearing package.
 
 `tools.package_portable` copies a complete assembled candidate into a private package. That output contains game files and may contain personal configuration; it is not the public release ZIP and must not be uploaded.
 
-Linux runtime assembly is described in [the Linux guide](linux.md). It uses a separate coherent dependency stack, with glibc 2.42 as the current runtime floor.
+The Linux release uses a separate coherent dependency stack, with glibc 2.42 as its runtime floor. The downloadable archive already contains it; end users do not need to run the staging tools.
 
 ## Tests
 
@@ -98,3 +118,5 @@ python -m unittest discover -s tests
 ```
 
 Some integration tests require private version-locked media, compiler tools or staged dependencies. Keep those fixtures local. Do not infer availability of those fixtures from the public source checkout.
+
+The reviewed Gamescope build removes its build-only RPATH using the Meson install helper. Before public staging, run `python -m tools.sanitize_linux_gamescope /path/to/staged/gamescope.bin` to normalize the two remaining embedded build-path constants without changing ELF offsets. The wrapper sets the installed script directory explicitly. The sanitizer rejects an active RPATH and records before/after hashes for provenance.

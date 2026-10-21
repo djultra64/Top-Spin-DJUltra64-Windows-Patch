@@ -14,6 +14,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
+import stat
 import sys
 import tempfile
 import zipfile
@@ -53,13 +54,15 @@ def safe_path(root: Path, name: str) -> Path:
     return candidate
 
 
-def payload_bytes(payload: Path, descriptor: dict) -> bytes:
-    if not isinstance(descriptor, dict) or set(descriptor) != {'path', 'sha256'}:
+def payload_bytes(payload: Path, descriptor: dict, *, allow_empty=False) -> bytes:
+    if (not isinstance(descriptor, dict) or set(descriptor) not in
+            ({'path', 'sha256'}, {'path', 'sha256', 'executable'}) or
+            ('executable' in descriptor and descriptor['executable'] is not True)):
         raise ValueError('Invalid payload file descriptor.')
     raw = safe_path(payload, descriptor['path']).read_bytes()
     if digest(raw) != descriptor['sha256']:
         raise ValueError('Payload checksum mismatch: '+descriptor['path'])
-    if not raw:
+    if not raw and not allow_empty:
         raise ValueError('Empty payload files are not supported.')
     return raw
 
@@ -116,6 +119,12 @@ def installed_receipt(game: Path):
                 plan_prompt_style(game, state['family'], state['positions'])
                 continue
             raise ValueError('The installed patch has changed: '+name+'. Restore your private backup before reinstalling.')
+    for name in receipt.get('executable_files', []):
+        path = safe_path(game, name)
+        if (receipt.get('platform') != 'linux' or name not in receipt['files'] or
+                not executable_allowed(name, path.read_bytes()) or
+                stat.S_IMODE(path.stat().st_mode) != 0o755):
+            raise ValueError('The reviewed Linux executable permissions changed: '+name)
     return receipt
 
 
@@ -182,32 +191,94 @@ def build_install_integrity(game, changes):
     return {'version': 1, 'files': result}
 
 
+def executable_allowed(name, raw):
+    return ((name in ('Play-TopSpin.sh', 'TopSpinLauncher.sh') or name.startswith('runtime/'))
+            and (raw.startswith(b'#!') or raw.startswith(b'\x7fELF')))
+
+
+def validate_linux_runtime(game, overlay, executables):
+    name = '.portable/runtime.json'
+    if name not in overlay:
+        raise ValueError('The Linux runtime descriptor is missing.')
+    runtime = json.loads(overlay[name])
+    required = {'gamescope', 'afmf_layer', 'video_libraries', 'video_plugins', 'library_path'}
+    if not isinstance(runtime, dict) or not required <= runtime.keys() or set(runtime)-required-{'proton'}:
+        raise ValueError('Unsupported Linux runtime descriptor.')
+    for key, value in runtime.items():
+        paths = value if key == 'video_libraries' else [value]
+        if not isinstance(paths, list) or not paths:
+            raise ValueError('Linux video libraries are missing.')
+        for relative in paths:
+            safe_path(game, relative)
+            if key in ('gamescope', 'proton', 'video_libraries'):
+                if relative not in overlay:
+                    raise ValueError('A declared Linux runtime file is missing: '+relative)
+            elif not any(name.startswith(relative+'/') for name in overlay):
+                raise ValueError('A declared Linux runtime directory is missing: '+relative)
+        if key in ('gamescope', 'proton') and value not in executables:
+            raise ValueError('A Linux runtime entry point must be marked executable: '+value)
+    layer_root = runtime['afmf_layer']
+    layer_name = layer_root+'/afmf-linux.json'
+    if layer_name not in overlay:
+        raise ValueError('The Linux interpolation layer descriptor is missing.')
+    layer = json.loads(overlay[layer_name])['layer']
+    library = layer['library_path']
+    if layer['name'] != 'VK_LAYER_AFMF' or not isinstance(library, str):
+        raise ValueError('Unsupported Linux interpolation layer.')
+    if library.startswith('./'):
+        library = library[2:]
+    library = layer_root+'/'+library
+    safe_path(game, library)
+    if library not in overlay:
+        raise ValueError('The Linux interpolation layer library is missing.')
+
+
 def validated_payload(game, payload):
     payload = Path(payload).absolute()
     if payload.is_symlink():
         raise ValueError('The payload folder must not be a symbolic link.')
     manifest_raw = safe_path(payload, 'manifest.json').read_bytes()
     manifest = json.loads(manifest_raw)
-    if (set(manifest) not in ({'version', 'files', 'stubs', 'lua'},
-                               {'version', 'author', 'files', 'stubs', 'lua'})
+    required = {'version', 'files', 'stubs', 'lua'}
+    if (not isinstance(manifest, dict) or not required <= manifest.keys() or set(manifest)-required-{'author', 'platform'}
             or manifest['version'] != 1 or manifest.get('author', 'djultra64') != 'djultra64'):
         raise ValueError('Unsupported patch payload manifest.')
-    changes = {}
+    platform = manifest.get('platform', 'windows')
+    if platform not in ('windows', 'linux'):
+        raise ValueError('Unsupported patch payload platform.')
+    if not isinstance(manifest['files'], dict):
+        raise ValueError('Unsupported patch payload file list.')
+    changes = {}; executables = []
     for name, descriptor in manifest['files'].items():
         safe_path(game, name)
         if not _overlay_allowed(name):
             raise ValueError('Payload would overwrite protected game content: '+name)
-        changes[name] = payload_bytes(payload, descriptor)
-    for required in ('runtime/input/djultra-input.dll', 'runtime/input/SDL3.dll', 'd3d8.dll'):
-        if required not in changes:
-            raise ValueError('Required controller runtime missing from payload: '+required)
+        if platform == 'linux' and (name.lower() in ('d3d8.dll', 'd3d9.dll', 'dgvoodoo.conf') or
+                name.lower().startswith(('.portable/windows-', 'runtime/windows'))):
+            raise ValueError('Windows graphics files cannot be installed by the Linux payload.')
+        empty_initializer = (platform == 'linux' and name.startswith('runtime/python/')
+                             and name.endswith(('/__init__.py', '/py.typed')))
+        changes[name] = payload_bytes(payload, descriptor, allow_empty=empty_initializer)
+        if descriptor.get('executable'):
+            if platform != 'linux' or not executable_allowed(name, changes[name]):
+                raise ValueError('Unreviewed executable permission request: '+name)
+            executables.append(name)
+    required_files = ['runtime/input/djultra-input.dll', 'runtime/input/SDL3.dll']
+    if platform == 'windows':
+        required_files.append('d3d8.dll')
+    for required_file in required_files:
+        if required_file not in changes:
+            raise ValueError('Required runtime missing from payload: '+required_file)
     stubs = manifest['stubs']
     if set(stubs) != {'input', 'save_drives', 'options_delete'}:
         raise ValueError('The three prepared portability stubs are required.')
     prepared = {key: payload_bytes(payload, descriptor) for key, descriptor in stubs.items()}
     payload_bytes(payload, manifest['lua'])
-    validate_framegen_payload(changes)
-    return changes, prepared, manifest['lua'], digest(manifest_raw)
+    if platform == 'windows':
+        validate_framegen_payload(changes)
+    else:
+        validate_linux_runtime(game, changes, executables)
+    return changes, prepared, manifest['lua'], digest(manifest_raw), platform, executables
 
 
 def validate_framegen_payload(overlay):
@@ -261,8 +332,10 @@ def validate_renderer_state(game):
 
 
 def plan_upgrade(game, payload, receipt):
-    overlay, _stubs, _lua, manifest_hash = validated_payload(game, payload)
-    selected_renderer = validate_renderer_state(game)
+    overlay, _stubs, _lua, manifest_hash, platform, executables = validated_payload(game, payload)
+    if receipt.get('platform', 'windows') != platform:
+        raise ValueError('Cross-platform upgrades are not supported; use a separate game installation.')
+    selected_renderer = validate_renderer_state(game) if platform == 'windows' else None
     if receipt.get('payload_manifest_sha256') == manifest_hash:
         return {}, receipt
     preserve = {'dgVoodoo.conf', 'd3d8.dll', '.portable/launcher.json',
@@ -272,9 +345,10 @@ def plan_upgrade(game, payload, receipt):
         if name in preserve or name.startswith('.portable/glyphs/'):
             continue
         path = safe_path(game, name)
-        if not path.is_file() or path.read_bytes() != raw:
+        if (not path.is_file() or path.read_bytes() != raw or
+                (name in executables and stat.S_IMODE(path.stat().st_mode) != 0o755)):
             changes[name] = raw
-    new_component = validate_framegen_payload(overlay)
+    new_component = validate_framegen_payload(overlay) if platform == 'windows' else None
     if new_component is not None:
         selected_d8 = new_component['dxvk32/d3d8.dll' if selected_renderer == 'dxvk-afmf' else 'dgvoodoo/d3d8.dll']
         if safe_path(game, 'd3d8.dll').read_bytes() != selected_d8:
@@ -285,7 +359,8 @@ def plan_upgrade(game, payload, receipt):
     # bytes, authorized renderer/font state and the complete new runtime.
     changes['.portable/integrity.json'] = json_bytes(build_install_integrity(game, changes))
     metadata = dict(receipt)
-    metadata.update(operation='upgrade', status='validated',
+    metadata.update(operation='upgrade', status='validated', platform=platform,
+                    executable_files=sorted(set(receipt.get('executable_files', [])) | set(executables)),
                     payload_manifest_sha256=manifest_hash,
                     _previous_receipt_sha256=digest(safe_path(game, RECEIPT).read_bytes()))
     return changes, metadata
@@ -303,7 +378,6 @@ def plan_install(game: Path, payload: Path):
     receipt = installed_receipt(game)
     if receipt:
         return plan_upgrade(game, payload, receipt)
-    validate_renderer_state(game)
     if safe_path(game, BACKUP).exists():
         raise ValueError('A private backup already exists without a valid receipt. Recover it before installing.')
     # Reject linked media before planners can read anything outside this tree.
@@ -311,7 +385,14 @@ def plan_install(game: Path, payload: Path):
     for entry in media.rglob('*'):
         if entry.is_symlink():
             raise ValueError('Symbolic links are not supported in game media.')
-    changes, prepared, lua_descriptor, manifest_hash = validated_payload(game, payload)
+    changes, prepared, lua_descriptor, manifest_hash, platform, executables = validated_payload(game, payload)
+    if platform == 'windows':
+        validate_renderer_state(game)
+    else:
+        for name in ('d3d8.dll', 'd3d9.dll', '.portable/windows-graphics.json',
+                     '.portable/windows-framegen.json'):
+            if safe_path(game, name).exists():
+                raise ValueError('A Windows graphics runtime is already installed; use a separate Linux game folder.')
     if source_hash == SOURCE_SHA256:
         raw = patch_executable(raw, prepared['input'], 16/9,
                                fix_options_save=True, fix_career_storage=True,
@@ -320,9 +401,10 @@ def plan_install(game: Path, payload: Path):
                                delete_options_stub=prepared['options_delete'])
         if digest(raw) != WINDOWED_BACKBUFFER_SOURCE_SHA256:
             raise ValueError('Prepared input stub does not produce the supported executable.')
-    if digest(raw) == WINDOWED_BACKBUFFER_SOURCE_SHA256:
+    if platform == 'windows' and digest(raw) == WINDOWED_BACKBUFFER_SOURCE_SHA256:
         raw = patch_windowed_backbuffer(raw)
-    if digest(raw) != WINDOWS_SHA256:
+    expected_executable = WINDOWS_SHA256 if platform == 'windows' else WINDOWED_BACKBUFFER_SOURCE_SHA256
+    if digest(raw) != expected_executable:
         raise ValueError('The final executable checksum differs from the supported release.')
     changes['TopSpin.exe'] = raw
     from launcher.settings import Settings, apply_graphics
@@ -336,13 +418,14 @@ def plan_install(game: Path, payload: Path):
     tree.set('DebugSettings', 'ShowFPS', 'false')
     tree.set('General', 'Language', 'Eng')
     tree.set('General', 'LaunchPart', 'e_TopSpin_MenuPart')
-    tree.set('Video', 'FullScreen', 'false')
+    tree.set('Video', 'FullScreen', 'false' if platform == 'windows' else 'true')
     # configure_pad preserves Security, all original mapping profiles and spare
     # controller assignments; installs an owned profile plus keyboard fallback.
     changes['Config.pml'] = configure_pad(tree.encode(), 1)
     changes['.portable/launcher.json'] = json_bytes(asdict(settings))
     changes['.portable/input.json'] = json_bytes({'version': 1, 'glyph_count': 48})
-    changes.update(plan_windows_configuration(settings))
+    if platform == 'windows':
+        changes.update(plan_windows_configuration(settings))
     from tools.glyph_install import plan_font_archives, _replace
     from tools.menu_quit import patch_main_menu, MEMBER_SHA256
     menu_changed = patch_main_menu(safe_path(game, MENU).read_bytes(),
@@ -366,7 +449,8 @@ def plan_install(game: Path, payload: Path):
         if path.exists() and not path.is_dir():
             raise ValueError('The local save path is not a directory: '+folder)
     return changes, {'version': 1, 'author': 'djultra64', 'source_sha256': source_hash,
-                     'status': 'validated', 'payload_manifest_sha256': manifest_hash}
+                     'status': 'validated', 'payload_manifest_sha256': manifest_hash,
+                     'platform': platform, 'executable_files': executables}
 
 
 def _write_exclusive(path: Path, data: bytes):
@@ -379,11 +463,15 @@ def _write_exclusive(path: Path, data: bytes):
         os.fsync(stream.fileno())
 
 
-def _replace_bytes(path: Path, data: bytes):
+def _replace_bytes(path: Path, data: bytes, *, mode=None):
     path.parent.mkdir(parents=True, exist_ok=True)
+    if mode is None and path.exists():
+        mode = stat.S_IMODE(path.stat().st_mode)
     descriptor, temporary = tempfile.mkstemp(prefix='.topspin-install-', dir=path.parent)
     try:
         with os.fdopen(descriptor, 'wb') as stream:
+            if mode is not None and os.name != 'nt':
+                os.fchmod(stream.fileno(), mode)
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
@@ -407,6 +495,14 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
         if _protected(name):
             raise ValueError('Protected installation path: '+name)
     metadata = dict(metadata or {})
+    platform = metadata.get('platform', 'windows')
+    executables = set(metadata.get('executable_files', []))
+    for name in executables:
+        raw = changes.get(name)
+        if raw is None:
+            raw = safe_path(game, name).read_bytes()
+        if platform != 'linux' or not executable_allowed(name, raw):
+            raise ValueError('Unreviewed executable permission request: '+name)
     upgrading = metadata.get('operation') == 'upgrade'
     backup_name = BACKUP
     if upgrading:
@@ -425,7 +521,8 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
     previous_receipt = receipt_path.read_bytes() if receipt_path.exists() else None
     if upgrading:
         installed_receipt(game)
-        validate_renderer_state(game)
+        if platform == 'windows':
+            validate_renderer_state(game)
         if previous_receipt is None or digest(previous_receipt) != metadata.get('_previous_receipt_sha256'):
             raise ValueError('The previous installation receipt changed during upgrade planning.')
     elif previous_receipt is not None:
@@ -439,6 +536,7 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
         raise ValueError('An installation is active or interrupted; inspect the private backup and install.lock before retrying.') from exc
     os.close(lock_fd)
     previous = {}
+    previous_modes = {}
     written = []
     created_dirs = []
     backup_created = False
@@ -459,6 +557,7 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
             # Repeat link validation immediately before reading and writing.
             safe_path(game, name)
             previous[name] = path.read_bytes() if path.exists() else None
+            previous_modes[name] = stat.S_IMODE(path.stat().st_mode) if path.exists() else None
             if previous[name] is not None:
                 _write_exclusive(backup/name, previous[name])
             receipt['files'][name] = {'sha256': digest(changes[name]),
@@ -475,7 +574,7 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
             while not parent.exists():
                 created_dirs.append(parent)
                 parent = parent.parent
-            _replace_bytes(path, changes[name])
+            _replace_bytes(path, changes[name], mode=0o755 if name in executables else previous_modes[name])
             written.append(name)
         _replace_bytes(receipt_path, json_bytes(receipt))
     except BaseException:
@@ -484,7 +583,7 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
                 if previous[name] is None:
                     paths[name].unlink(missing_ok=True)
                 else:
-                    _replace_bytes(paths[name], previous[name])
+                    _replace_bytes(paths[name], previous[name], mode=previous_modes[name])
             if previous_receipt is None:
                 receipt_path.unlink(missing_ok=True)
             else:

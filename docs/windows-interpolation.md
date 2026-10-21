@@ -1,6 +1,6 @@
 # Windows frame interpolation
 
-Windows integration by **djultra64**, based on the pinned upstream AFMF layer and AMD FidelityFX optical flow. The v0.2.0 Windows patch includes this optional component alongside the default dgVoodoo2 renderer.
+Windows integration by **djultra64**, based on the pinned upstream AFMF layer and AMD FidelityFX optical flow. Introduced in v0.2.0, this optional component is included alongside the default dgVoodoo2 renderer.
 
 ## Enable or disable
 

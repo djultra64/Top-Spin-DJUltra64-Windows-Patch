@@ -1,15 +1,15 @@
 # Top Spin launcher
 
-Own integration: **djultra64**. Install the Windows patch into your own compatible game using [the installation guide](../docs/windows.md). The patch includes launcher runtimes; original game files and keys are not included.
+Own integration: **djultra64**. Install the patch into your own compatible game using the [Windows](../docs/windows.md) or [Linux / Proton](../docs/linux.md) installation guide. The patch includes launcher runtimes; original game files and keys are not included.
 
 ## Start
 
-| Action | Windows | Complete Linux candidate |
+| Action | Windows | Linux / Proton |
 | --- | --- | --- |
 | Configure graphics and controls | `TopSpinLauncher.exe` | `TopSpinLauncher.sh` |
 | Play with saved settings | `Play-TopSpin.exe` | `Play-TopSpin.sh` |
 
-The direct Play entry opens the game with saved settings. Keep the entry points and their runtime folders together. On Windows, `Play-TopSpin.cmd` is an alternative direct shortcut. The Windows release includes its own Python/Tk runtime. Linux uses a separately assembled runtime; the Windows installer ZIP is not a native Linux package.
+The direct Play entry opens the game with saved settings. Keep the entry points and their runtime folders together. On Windows, `Play-TopSpin.cmd` is an alternative direct shortcut. Both platform releases include their own Python/Tk runtime. Use the Windows ZIP or Linux tar.gz for your operating system; their installer runtimes are separate.
 
 Choose settings, then **Save settings** or **Play**. Launcher settings stay in `.portable/launcher.json`. The launcher preserves the game's Security section and original keyboard profile. Game options and profiles stay under local `T`/`U` folders; keep them when moving or backing up the game.
 
@@ -22,7 +22,7 @@ Choose settings, then **Save settings** or **Play**. Launcher settings stay in `
 - Timing stays at **50 FPS gameplay / 30 FPS replays and cinematics** with synchronization enabled.
 - **Frame interpolation** on Windows uses the included DXVK/AFMF component and is off by default. Enable it, then select **Save settings** or **Play**. Disable it and save to restore dgVoodoo2. It requires a compatible Vulkan driver; see [Windows interpolation](../docs/windows-interpolation.md). Linux retains its separate **Frame generation** option.
 
-Windows installation defaults are 3840 × 2160 render / 1920 × 1080 output, English and Xbox 360 prompts. The game FPS counter is disabled, and **Quit Game** is available in the main menu.
+Fresh installation defaults on both platforms are 3840 × 2160 render / 1920 × 1080 output, English, Xbox 360 prompts and interpolation off. The game FPS counter is disabled, and **Quit Game** is available in the main menu.
 
 The Linux runtime needs x86-64 Linux with glibc 2.42 or newer, Vulkan, X11/Xwayland and an existing Steam Proton 11 installation. The launcher finds Proton in known Steam locations; **Browse** appears when a manual selection is needed.
 

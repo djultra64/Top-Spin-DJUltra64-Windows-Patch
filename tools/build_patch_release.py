@@ -1,4 +1,4 @@
-"""Build a fail-closed public patch ZIP, never a private game package. djultra64.
+"""Build a fail-closed public patch archive, never a private game package. djultra64.
 
 A reviewed JSON binary manifest is required; this tool never discovers files in
 private build trees. Each entry is {source, destination, sha256, notices:[dest]}.
@@ -7,13 +7,17 @@ the Lua compiler uses role lua. Installer files use role installer and destinati
 ApplyPatch.exe, runtime-applypatch/... or runtime-installer/... and are never
 installed over the game. Role installer_python identifies runtime-installer/python.exe
 whose reviewed python314._pth must include ../files for the bundled own sources.
+A reviewed platform=linux selects a .tar.gz archive, its bundled Linux interpreter
+and executable descriptors; missing platform preserves the legacy Windows ZIP.
 """
 import argparse
 import hashlib
+import io
 import json
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
+import tarfile
 import zipfile
 
 SOURCE_FILES = tuple('launcher/' + name + '.py' for name in (
@@ -27,6 +31,8 @@ SOURCE_FILES = tuple('launcher/' + name + '.py' for name in (
     'portable/TopSpinLauncher.sh', 'portable/TopSpinLauncher.cmd',
     'portable/Play-TopSpin.sh', 'portable/Play-TopSpin.cmd',
     'NOTICE.md', 'licenses/lua-5.0.3/COPYRIGHT')
+LINUX_SOURCE_ONLY_FILES = ('patches/gamescope-sdl-clean-shutdown.patch',
+    'tools/check_linux_runtime.sh', 'tools/sanitize_linux_gamescope.py')
 SOURCE_ONLY_FILES = (
     'tools/build_patch_release.py', 'tools/native_input.py',
     'native/input/input.c', 'native/input/policy.c', 'native/input/policy.h',
@@ -41,6 +47,9 @@ SOURCE_ONLY_FILES = (
     'windows_golden_check.c', 'windows_harness_bridge.c',
     'windows_harness_bridge.h', 'windows_harness_functions.inc')) + (
     'patches/afmf-windows.patch', 'patches/afmf-windows-harness.patch')
+LINUX_REQUIRED_DESTINATIONS = frozenset((
+    'runtime/input/SDL3.dll', 'runtime/input/djultra-input.dll',
+    'runtime/python/bin/python3', 'runtime/linux/check-abi.sh', '.portable/runtime.json'))
 BINARY_DESTINATIONS = frozenset((
     'TopSpinLauncher.exe', 'Play-TopSpin.exe', 'd3d8.dll',
     'runtime/input/SDL3.dll', 'runtime/input/djultra-input.dll'))
@@ -97,8 +106,23 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def _binary_destination(name, role):
+def _binary_destination(name, role, platform='windows'):
     safe_name(name)
+    if platform == 'linux':
+        allowed = (role == 'overlay' and (
+            name.startswith(('licenses/', 'runtime/linux/afmf/', 'runtime/linux/bin/',
+                'runtime/linux/gstreamer-1.0/', 'runtime/linux/lib64/', 'runtime/linux/share/',
+                'runtime/linux/licenses/', 'runtime/python/bin/', 'runtime/python/lib/',
+                'runtime/python/lib64/', 'runtime/python/share/', 'runtime/python/licenses/')) or
+            name in LINUX_REQUIRED_DESTINATIONS or name in {
+                'runtime/linux/provenance.json', 'runtime/python/provenance.json', 'runtime/python/runtime-build.json',
+                'runtime/python/LICENSE', 'runtime/python/LICENSE.txt', 'runtime/input/LICENSE.txt', 'dxvk.conf'}))
+        if PurePosixPath(name).suffix.lower() in {'.exe', '.dll'} and name not in {
+                'runtime/input/SDL3.dll', 'runtime/input/djultra-input.dll'}:
+            allowed = False
+        if not allowed:
+            raise ValueError('Linux runtime destination is not allowlisted: ' + name)
+        return
     if role == 'installer_python':
         allowed = name == 'runtime-installer/python.exe'
     elif role == 'installer':
@@ -119,12 +143,17 @@ def prepare_payload(root, reviewed, original_inventory):
     an original game file to an otherwise allowed runtime filename.
     """
     root = Path(root)
+    platform = reviewed.get('platform', 'windows')
+    if platform not in {'windows', 'linux'}:
+        raise ValueError('Unsupported patch release platform')
     denied = {item['sha256'] for item in original_inventory['files']}
     if not denied or not all(re.fullmatch('[0-9a-f]{64}', value) for value in denied):
         raise ValueError('A complete private original-file inventory is required')
     output = {}
     folded = set()
+    installed_folded = set()
     manifest = {'version': 1, 'author': 'djultra64', 'files': {}, 'stubs': {}}
+    if platform == 'linux': manifest['platform'] = platform
 
     def add(name, data):
         safe_name(name)
@@ -136,18 +165,28 @@ def prepare_payload(root, reviewed, original_inventory):
         output[name] = data
         return {'path': name, 'sha256': digest(data)}
 
-    def overlay(name, data):
+    def overlay(name, data, executable=False):
         safe_name(name)
         descriptor = add('files/' + name, data)
-        if name.casefold() in {key.casefold() for key in manifest['files']}:
+        if executable:
+            if platform != 'linux' or not (data.startswith(b'\x7fELF') or data.startswith(b'#!')):
+                raise ValueError('Only Linux ELF files or scripts may be executable: ' + name)
+            descriptor['executable'] = True
+        if name.casefold() in installed_folded:
             raise ValueError('Duplicate installed destination: ' + name)
+        installed_folded.add(name.casefold())
         manifest['files'][name] = descriptor
 
     for name in SOURCE_FILES:
+        if platform == 'linux' and name.endswith('.cmd'): continue
         destination = name.removeprefix('portable/') if name.startswith('portable/') else name
-        overlay(destination, checked_read(root, name))
+        overlay(destination, checked_read(root, name), platform == 'linux' and name.endswith('.sh'))
     for name in SOURCE_ONLY_FILES:
         add('sources/' + name, checked_read(root, name))
+    if platform == 'linux':
+        for name in LINUX_SOURCE_ONLY_FILES:
+            add('sources/' + name, checked_read(root, name))
+        overlay('Linux-Readme.md', checked_read(root, 'docs/linux.md'))
     # Only this reviewed CC0 subset; never copy artwork or arbitrary asset trees.
     provenance = json.loads(checked_read(root, 'assets/input/xelu/provenance.json'))
     if provenance['license'] != 'CC0-1.0':
@@ -165,6 +204,10 @@ def prepare_payload(root, reviewed, original_inventory):
 
     # Own copyright notice is explicit; no project-wide MIT license is implied.
     overlay('licenses/djultra64/NOTICE.md', checked_read(root, 'NOTICE.md'))
+    def notice_name(name):
+        return isinstance(name, str) and (name.startswith('licenses/') or platform == 'linux' and
+            name.startswith(('runtime/linux/licenses/', 'runtime/python/licenses/')))
+
     entries = reviewed['files']
     destinations = {entry.get('destination') for entry in entries} | {'licenses/djultra64/NOTICE.md'}
     for entry in entries:
@@ -172,30 +215,47 @@ def prepare_payload(root, reviewed, original_inventory):
         if digest(data) != entry['sha256']:
             raise ValueError('Reviewed binary hash mismatch: ' + entry['source'])
         role = entry.get('role', 'overlay')
+        if platform == 'linux' and role == 'lua' and not data.startswith((b'\x7fELF', b'#!')):
+            raise ValueError('Linux Lua compiler must be an ELF executable or script')
         if role in STUB_ROLES or role == 'lua':
             notices = entry.get('notices', [])
-            if not notices or any(not notice.startswith('licenses/') or notice not in destinations for notice in notices):
+            if not notices or any(not notice_name(notice) or notice not in destinations for notice in notices):
                 raise ValueError('Missing build-input license notice: ' + role)
         if role in STUB_ROLES or role == 'lua':
             if role in manifest['stubs'] or role == 'lua' and 'lua' in manifest:
                 raise ValueError('Duplicate build role')
-            descriptor = add('build-inputs/' + ('lua.exe' if role == 'lua' else role + '.bin'), data)
+            descriptor = add('build-inputs/' + (('lua' if platform == 'linux' else 'lua.exe') if role == 'lua' else role + '.bin'), data)
             if role == 'lua': manifest['lua'] = descriptor
             else: manifest['stubs'][role] = descriptor
         else:
             if role not in {'overlay', 'installer', 'installer_python'}:
                 raise ValueError('Unknown binary role')
             name = entry['destination']
-            _binary_destination(name, role)
-            if not name.startswith('licenses/'):
+            _binary_destination(name, role, platform)
+            if not notice_name(name):
                 notices = entry.get('notices', [])
-                if not notices or any(not notice.startswith('licenses/') or notice not in destinations for notice in notices):
+                if not notices or any(not notice_name(notice) or notice not in destinations for notice in notices):
                     raise ValueError('Missing reviewed dependency/own-work notices: ' + name)
             if role in {'installer', 'installer_python'}: add(name, data)
-            else: overlay(name, data)
-    missing = BINARY_DESTINATIONS - manifest['files'].keys()
-    if missing or STUB_ROLES - manifest['stubs'].keys() or 'lua' not in manifest or not ({'ApplyPatch.exe', 'runtime-installer/python.exe'} & output.keys()):
-        raise ValueError('Incomplete Windows patch payload; missing runtime, compiler, stubs or Windows installer: ' + ', '.join(sorted(missing)))
+            else:
+                executable = entry.get('executable', bool((root / entry['source']).stat().st_mode & 0o111) and
+                    (data.startswith(b'\x7fELF') or data.startswith(b'#!'))) if platform == 'linux' else False
+                if 'executable' in entry and (platform != 'linux' or type(entry['executable']) is not bool):
+                    raise ValueError('Executable flags require boolean Linux descriptors')
+                overlay(name, data, executable)
+    required = LINUX_REQUIRED_DESTINATIONS if platform == 'linux' else BINARY_DESTINATIONS
+    missing = required - manifest['files'].keys()
+    if missing or STUB_ROLES - manifest['stubs'].keys() or 'lua' not in manifest or platform == 'windows' and not ({'ApplyPatch.exe', 'runtime-installer/python.exe'} & output.keys()):
+        raise ValueError('Incomplete ' + platform + ' patch payload; missing runtime, compiler, stubs or installer: ' + ', '.join(sorted(missing)))
+    if platform == 'linux':
+        for name in ('runtime/python/bin/python3', 'runtime/linux/check-abi.sh'):
+            if not manifest['files'][name].get('executable'):
+                raise ValueError('Linux bootstrap file must be executable: ' + name)
+        from tools.install_patch import validate_linux_runtime
+        overlay_bytes = {name: output[item['path']] for name, item in manifest['files'].items()}
+        executable_names = [name for name, item in manifest['files'].items() if item.get('executable')]
+        with tempfile.TemporaryDirectory(prefix='topspin-linux-validation-') as folder:
+            validate_linux_runtime(Path(folder), overlay_bytes, executable_names)
     framegen = FRAMEGEN_DESTINATIONS & manifest['files'].keys()
     if framegen:
         if framegen != FRAMEGEN_DESTINATIONS:
@@ -238,11 +298,74 @@ def prepare_payload(root, reviewed, original_inventory):
     return output
 
 
+
+def _build_linux_release(destination, output):
+    if not destination.name.endswith('.tar.gz'):
+        raise ValueError('Linux patch releases use a .tar.gz destination')
+    manifest = json.loads(output['manifest.json'])
+    executable = {descriptor['path'] for descriptor in manifest['files'].values()
+                  if descriptor.get('executable')}
+    executable.add(manifest['lua']['path'])
+    command = b'''#!/bin/sh
+# Public patch installer, own integration: djultra64.
+set -eu
+root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+files="$root/.topspin-patch/files"
+python_root="$files/runtime/python"
+printf '%s\n' 'Preparing the Top Spin patch. This may take a moment.'
+# Run the ABI check with the system shell before loading bundled ELF files.
+sh "$files/runtime/linux/check-abi.sh" || exit $?
+if [ ! -x "$python_root/bin/python3" ]; then
+    printf '%s\n' 'The packaged Python interpreter is missing or not executable.' >&2
+    exit 1
+fi
+export PYTHONHOME="$python_root"
+export PYTHONPATH="$files"
+export PYTHONNOUSERSITE=1
+export LD_LIBRARY_PATH="$python_root/lib64"
+cd -- "$root"
+check_only=0
+for argument in "$@"; do
+    if [ "$argument" = --check ]; then check_only=1; fi
+done
+if "$python_root/bin/python3" -s -m tools.install_patch --game-dir "$root" --payload "$root/.topspin-patch" "$@" > "$root/.topspin-patch/install.log" 2>&1; then
+    if [ "$check_only" = 1 ]; then
+        printf '%s\n' 'Patch validated successfully. No game files were changed.'
+    else
+        printf '%s\n' 'Patch installed successfully. Open TopSpinLauncher.sh to configure or Play-TopSpin.sh to play.'
+    fi
+else
+    status=$?
+    cat "$root/.topspin-patch/install.log" >&2
+    printf '%s\n' 'Patch installation failed.' >&2
+    exit "$status"
+fi
+'''
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryFile() as staged:
+        with tarfile.open(fileobj=staged, mode='w:gz') as archive:
+            for name, data, mode in [('Install-Patch.sh', command, 0o755)] + [
+                    ('.topspin-patch/' + name, data, 0o755 if name in executable else 0o644)
+                    for name, data in sorted(output.items())]:
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                info.mode = mode
+                info.uid = info.gid = 0
+                info.uname = info.gname = 'djultra64'
+                archive.addfile(info, io.BytesIO(data))
+        staged.seek(0)
+        with destination.open('xb') as target:
+            while chunk := staged.read(1024 * 1024): target.write(chunk)
+    return {'author': 'djultra64', 'platform': 'linux', 'files': len(output) + 1,
+            'payload_bytes': sum(map(len, output.values())), 'tar_gz_bytes': destination.stat().st_size}
+
 def build_release(root, destination, reviewed, original_inventory):
     destination = Path(destination)
     if destination.exists():
-        raise ValueError('Choose a fresh ZIP destination')
+        raise ValueError('Choose a fresh archive destination')
     output = prepare_payload(root, reviewed, original_inventory)
+    if reviewed.get('platform', 'windows') == 'linux':
+        return _build_linux_release(destination, output)
     # Extraction changes only the patch staging directory and the new entrypoint.
     if 'runtime-installer/python.exe' in output:
         interpreter = '"%~dp0.topspin-patch\\runtime-installer\\python.exe" -I -m tools.install_patch'
