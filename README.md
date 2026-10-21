@@ -8,7 +8,7 @@ Modern Windows compatibility research for the original PC version of **Top Spin*
 
 This compatibility project is intended for a **legally purchased or otherwise lawfully obtained PC copy of Top Spin**. You supply the game yourself; no game download, product key or licensing bypass is provided here. The current patch source still requires the exact supported input hashes described in [Building and research](docs/building.md); lawful ownership does not establish that a particular edition matches those inputs.
 
-As of **October 20, 2026**, we have not found the original PC release for sale through a current official digital storefront. GOG lists it as a [Dreamlist request](https://www.gog.com/dreamlist/game/top-spin-2003), and it appears in [abandonware archives](https://www.myabandonware.com/game/top-spin-fph). This describes its availability, not permission to download or redistribute it: the “abandonware” label is not a license. Second-hand physical copies may still be available.
+As of **October 20, 2026**, we have not found the original PC release for sale through a current official digital storefront. GOG lists it as a [Dreamlist request](https://www.gog.com/dreamlist/game/top-spin-2003), and it appears on abandonware sites. This describes its availability, not permission to download or redistribute it: the “abandonware” label is not a license. Second-hand physical copies may still be available.
 
 ## Current development results
 
