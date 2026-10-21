@@ -1,0 +1,231 @@
+{
+  "title": "Xelu's Free Controller Prompts",
+  "creator": "Nicolae (Xelu) Berbece",
+  "updated_by": "Paul Paun (2021)",
+  "license": "CC0-1.0",
+  "source": "https://thoseawesomeguys.com/prompts/",
+  "archive_sha256": "2848fd4259437a6f594f81ff8d8d7a1f922397c7e9da163b2535aa82ae1df037",
+  "files": [
+    {
+      "source_entry": "Others/Xbox 360/360_A.png",
+      "file": "360_A.png",
+      "sha256": "6d8769aacff836a1edd5dbbb7f4ee7c3652b21509bd286ae77989ad1cf39952d"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_B.png",
+      "file": "360_B.png",
+      "sha256": "8e100cd5aa094f96e70a024eec4433e85cc2b28fd6e91fa559fb12843602ba8b"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_X.png",
+      "file": "360_X.png",
+      "sha256": "e7b5a8beb263f1e75b48c64ba57ffe002ab1b619a57cbd915f68af130c071559"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_Y.png",
+      "file": "360_Y.png",
+      "sha256": "4da30c178e91381a3b6f7cc32be405b10a2824afc514fb12db633813e6f1639b"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_LB.png",
+      "file": "360_LB.png",
+      "sha256": "c9719656a1b8760a5a87f49ae7659c4a48693081a842c0cb98efb2a1a13a1d61"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_RB.png",
+      "file": "360_RB.png",
+      "sha256": "80b80b7ad1ea47e9ebd1e949f677a3a55207d47a5ca8e04e39ec20c621f6e1be"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_Back.png",
+      "file": "360_Back.png",
+      "sha256": "debfb7168db68efee2fb5d44f932bcecd6cc2660b61a53df6c845ceb90c60fe5"
+    },
+    {
+      "source_entry": "Others/Xbox 360/360_Start.png",
+      "file": "360_Start.png",
+      "sha256": "36b5f2a0ca036d2947332440a5054d6cbf5d506c311dfb75b3a4687f1580e8d4"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_A.png",
+      "file": "XboxSeriesX_A.png",
+      "sha256": "913e59774cd9b6ae299b83c149e6bbebb1fea02608e1cd39f4b4ac313102f6bd"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_B.png",
+      "file": "XboxSeriesX_B.png",
+      "sha256": "329d67ca44ca0f2e059189c33bbf0f25eb8876edfdb5a0ef180e9f81de3fd72e"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_X.png",
+      "file": "XboxSeriesX_X.png",
+      "sha256": "127b823d5b9d2877fb8c09fa038940d62a95e5fdeedfab64c9fd76b0afb7fbae"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_Y.png",
+      "file": "XboxSeriesX_Y.png",
+      "sha256": "17253bd37c1be71e2c651b4030ddf23a1b33f138663d4dbd7912597a086fe12e"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_LB.png",
+      "file": "XboxSeriesX_LB.png",
+      "sha256": "e6c8540376270ac0124934959215ffebe4e12d3d22611609d7bd6f270eeab4d6"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_RB.png",
+      "file": "XboxSeriesX_RB.png",
+      "sha256": "75189a98a32bd2c2603776a74c594c4d554e379ebe5c5d05275983d70ceac09f"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_View.png",
+      "file": "XboxSeriesX_View.png",
+      "sha256": "39e9f46bd4f9e926b342f837bdb58056898985922d49027184cbfbd8a7915483"
+    },
+    {
+      "source_entry": "Xbox Series/XboxSeriesX_Menu.png",
+      "file": "XboxSeriesX_Menu.png",
+      "sha256": "fd786f34679308c0b6dab39701d8319d82415fa0a200021e705c8aba9c7804a3"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_Cross.png",
+      "file": "PS4_Cross.png",
+      "sha256": "ede2f1148b13263d5674d0a215ff7de52a1c5c983c0c3d713c0f8b62c3b5f8d6"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_Circle.png",
+      "file": "PS4_Circle.png",
+      "sha256": "068c1b4708af7f04b6d2cdee172b19cd0f6645ddc8777acd75c856cc431abb0e"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_Square.png",
+      "file": "PS4_Square.png",
+      "sha256": "5beb5e38d0e52b2c0c4b1ec27c3ca3e2801504216c8039f28bf6821aab91ca72"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_Triangle.png",
+      "file": "PS4_Triangle.png",
+      "sha256": "c44fc913b73602460a384aaad9a7be7cfadb657a2361556349cef584aa189528"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_L1.png",
+      "file": "PS4_L1.png",
+      "sha256": "a5e84f0757120a016a6edbc907134a0cd10ba81e5eb9f59f74cd7d9b77084272"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_R1.png",
+      "file": "PS4_R1.png",
+      "sha256": "97526f2d4976d77337b58b8a274fff107521c794484c03fd436aa4899eaf6c71"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_Share.png",
+      "file": "PS4_Share.png",
+      "sha256": "97ffb691a8a404ca13b459be473f1e156fba91adcf95814b868a4b00e266cf51"
+    },
+    {
+      "source_entry": "Others/PS4/PS4_Options.png",
+      "file": "PS4_Options.png",
+      "sha256": "ac1ea6ffc3c8e8cedf95af3f875ca02b8a05ba0d733b57ef908fe6ec2ad84020"
+    },
+    {
+      "source_entry": "PS5/PS5_Cross.png",
+      "file": "PS5_Cross.png",
+      "sha256": "fcc46fba8272fdb4504be36491945359b6ce2f67a7f59818cfa53fc8cd4862a2"
+    },
+    {
+      "source_entry": "PS5/PS5_Circle.png",
+      "file": "PS5_Circle.png",
+      "sha256": "2a328b6588ed8dfa3755bb49be35d4987cf10c3ace874de3b3904d53e26d30fa"
+    },
+    {
+      "source_entry": "PS5/PS5_Square.png",
+      "file": "PS5_Square.png",
+      "sha256": "e99d2c2e825654fb778045a7dcbbfb612b51991161e759638ab87161bd1c2899"
+    },
+    {
+      "source_entry": "PS5/PS5_Triangle.png",
+      "file": "PS5_Triangle.png",
+      "sha256": "566d6fa9a4ff45c9f77822bdee532a2f10402caad7219f6a4601a3f81d79bcd9"
+    },
+    {
+      "source_entry": "PS5/PS5_L1.png",
+      "file": "PS5_L1.png",
+      "sha256": "e63bcc131a4f2d7a7ccb4929e76fe5bfa0e9c1c8a3ce13f2b6198d742867a08b"
+    },
+    {
+      "source_entry": "PS5/PS5_R1.png",
+      "file": "PS5_R1.png",
+      "sha256": "b41fc6c4e8ca392bdafde0e024e956f74995a74f3933bdb49859e36857ebcee5"
+    },
+    {
+      "source_entry": "PS5/PS5_Share.png",
+      "file": "PS5_Share.png",
+      "sha256": "27fa4eab9183483f89199087b090954fddf62dfad992f8a56efad45adf7a9254"
+    },
+    {
+      "source_entry": "PS5/PS5_Options.png",
+      "file": "PS5_Options.png",
+      "sha256": "56daa6b3eaa192543ad753e1d71075c64604c06778bb061923ef48d3641884cd"
+    },
+    {
+      "source_entry": "Switch/Switch_B.png",
+      "file": "Switch_B.png",
+      "sha256": "f41fd9a72787acf40e9ba2c0a741a236c439000db45b0e41eff6929103606a5b"
+    },
+    {
+      "source_entry": "Switch/Switch_A.png",
+      "file": "Switch_A.png",
+      "sha256": "de84db5539a123165dbd497a2dc5a0a4b4994b52a038776d781c52293e9b323f"
+    },
+    {
+      "source_entry": "Switch/Switch_Y.png",
+      "file": "Switch_Y.png",
+      "sha256": "81102d3f7f717d1fdbcd128f99af3af28e0d7c6268b584bd645b83c0ff8c226a"
+    },
+    {
+      "source_entry": "Switch/Switch_X.png",
+      "file": "Switch_X.png",
+      "sha256": "e244cd25e59dc5ccc72be582156218b2811dea7bcd8276ba3d2f547bc13d931a"
+    },
+    {
+      "source_entry": "Switch/Switch_LB.png",
+      "file": "Switch_LB.png",
+      "sha256": "fe92dea776278dca97c1a9463494c28f78a700f66bba92f4fb8a4a0d34203eef"
+    },
+    {
+      "source_entry": "Switch/Switch_RB.png",
+      "file": "Switch_RB.png",
+      "sha256": "5c6403d2192cbe6858caebb2c464a987e5ae04d04883fc6fa1cf4e885ce64dde"
+    },
+    {
+      "source_entry": "Switch/Switch_Minus.png",
+      "file": "Switch_Minus.png",
+      "sha256": "524f925938bae09a4277b9618d865c8479c740ba43805f92b4341c1e96e01b58"
+    },
+    {
+      "source_entry": "Switch/Switch_Plus.png",
+      "file": "Switch_Plus.png",
+      "sha256": "0569561db9ca68a95d50a1087197050a38da5d1941769de3dd92ec04a0142be6"
+    },
+    {
+      "source_entry": "Others/Positional Prompts/Positional_Prompts_Down.png",
+      "file": "Positional_Prompts_Down.png",
+      "sha256": "f91297b688ce15d60f7b1aa7c5de5ae60f5e2cedbacccd2d8e351804e3ccb6e5"
+    },
+    {
+      "source_entry": "Others/Positional Prompts/Positional_Prompts_Right.png",
+      "file": "Positional_Prompts_Right.png",
+      "sha256": "7813f8379c86645637d2effc5da550f7ccf4d81ce9e1981e8bc2e39ce6773a4c"
+    },
+    {
+      "source_entry": "Others/Positional Prompts/Positional_Prompts_Left.png",
+      "file": "Positional_Prompts_Left.png",
+      "sha256": "59e9e8b4a9488af2bd1cb2cfd18f726e28eb2c090f09acbfe0c4a4366cb7bbb6"
+    },
+    {
+      "source_entry": "Others/Positional Prompts/Positional_Prompts_Up.png",
+      "file": "Positional_Prompts_Up.png",
+      "sha256": "63a4886e91e86540635645fef3877fc4069438183dad7fb0db8f68a717f9e1f2"
+    }
+  ],
+  "modifications": "None; original PNG files selected from the official pack."
+}

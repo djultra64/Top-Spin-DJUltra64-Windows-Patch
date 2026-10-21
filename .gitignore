@@ -1,0 +1,35 @@
+/TopSpin/
+/dist/
+/build/
+__pycache__/
+*.pyc
+/reports/runtime/
+/reports/*.log
+
+# Private inputs, generated game resources and local validation evidence.
+/luac.out
+/reports/progress.md
+/reports/source-inventory.json
+/docs/superpowers/
+*.exe
+*.dll
+*.msi
+*.cab
+*.iso
+*.wad
+*.rui
+*.pml
+*.art
+*.bin
+*.dmp
+*.core
+*.log
+*.pyc
+.env
+.env.*
+
+# Local developer environments and native build products.
+.venv/
+*.o
+*.obj
+*.pdb

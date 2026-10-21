@@ -1,0 +1,62 @@
+{
+  "xbox360": {
+    "south": "360_A.png",
+    "east": "360_B.png",
+    "west": "360_X.png",
+    "north": "360_Y.png",
+    "left_shoulder": "360_LB.png",
+    "right_shoulder": "360_RB.png",
+    "select": "360_Back.png",
+    "start": "360_Start.png"
+  },
+  "xbox": {
+    "south": "XboxSeriesX_A.png",
+    "east": "XboxSeriesX_B.png",
+    "west": "XboxSeriesX_X.png",
+    "north": "XboxSeriesX_Y.png",
+    "left_shoulder": "XboxSeriesX_LB.png",
+    "right_shoulder": "XboxSeriesX_RB.png",
+    "select": "XboxSeriesX_View.png",
+    "start": "XboxSeriesX_Menu.png"
+  },
+  "ps4": {
+    "south": "PS4_Cross.png",
+    "east": "PS4_Circle.png",
+    "west": "PS4_Square.png",
+    "north": "PS4_Triangle.png",
+    "left_shoulder": "PS4_L1.png",
+    "right_shoulder": "PS4_R1.png",
+    "select": "PS4_Share.png",
+    "start": "PS4_Options.png"
+  },
+  "ps5": {
+    "south": "PS5_Cross.png",
+    "east": "PS5_Circle.png",
+    "west": "PS5_Square.png",
+    "north": "PS5_Triangle.png",
+    "left_shoulder": "PS5_L1.png",
+    "right_shoulder": "PS5_R1.png",
+    "select": "PS5_Share.png",
+    "start": "PS5_Options.png"
+  },
+  "switch": {
+    "south": "Switch_B.png",
+    "east": "Switch_A.png",
+    "west": "Switch_Y.png",
+    "north": "Switch_X.png",
+    "left_shoulder": "Switch_LB.png",
+    "right_shoulder": "Switch_RB.png",
+    "select": "Switch_Minus.png",
+    "start": "Switch_Plus.png"
+  },
+  "unknown": {
+    "south": "Positional_Prompts_Down.png",
+    "east": "Positional_Prompts_Right.png",
+    "west": "Positional_Prompts_Left.png",
+    "north": "Positional_Prompts_Up.png",
+    "left_shoulder": "Switch_LB.png",
+    "right_shoulder": "Switch_RB.png",
+    "select": "XboxSeriesX_View.png",
+    "start": "XboxSeriesX_Menu.png"
+  }
+}

@@ -1,0 +1,174 @@
+diff --git a/src/Backends/SDLBackend.cpp b/src/Backends/SDLBackend.cpp
+index 87bde7e..f63823a 100644
+--- a/src/Backends/SDLBackend.cpp
++++ b/src/Backends/SDLBackend.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <X11/Xlib.h>
+ #include <thread>
++#include <chrono>
+ #include <mutex>
+ #include <string>
+ #include <optional>
+@@ -51,6 +52,7 @@ namespace gamescope
+ 		GAMESCOPE_SDL_EVENT_VISIBLE,
+ 		GAMESCOPE_SDL_EVENT_GRAB,
+ 		GAMESCOPE_SDL_EVENT_CURSOR,
++		GAMESCOPE_SDL_EVENT_STOP,
+ 
+ 		GAMESCOPE_SDL_EVENT_COUNT,
+ 	};
+@@ -133,6 +135,7 @@ namespace gamescope
+ 	{
+ 	public:
+ 		CSDLBackend();
++		~CSDLBackend() override;
+ 
+ 		/////////////
+ 		// IBackend
+@@ -194,7 +197,7 @@ namespace gamescope
+ 		uint32_t m_uUserEventIdBase = 0u;
+ 		std::vector<const char *> m_pszInstanceExtensions;
+ 
+-		std::thread m_SDLThread;
++		std::atomic<bool> m_bStopSDL = { false };
+ 		std::atomic<SDLInitState> m_eSDLInit = { SDLInitState::SDLInit_Waiting };
+ 
+ 		std::atomic<bool> m_bApplicationGrabbed = { false };
+@@ -205,6 +208,8 @@ namespace gamescope
+ 		SDL_Surface *m_pIconSurface = nullptr;
+ 		SDL_Surface *m_pCursorSurface = nullptr;
+ 		SDL_Cursor *m_pCursor = nullptr;
++		// Start after all state used by SDLThreadFunc has been initialized.
++		std::thread m_SDLThread;
+ 	};
+ 
+ 	//////////////////
+@@ -398,6 +403,15 @@ namespace gamescope
+ 	{
+ 	}
+ 
++	CSDLBackend::~CSDLBackend()
++	{
++		m_bStopSDL = true;
++		if ( m_eSDLInit == SDLInitState::SDLInit_Success )
++			PushUserEvent( GAMESCOPE_SDL_EVENT_STOP );
++		if ( m_SDLThread.joinable() )
++			m_SDLThread.join();
++	}
++
+ 	bool CSDLBackend::Init()
+ 	{
+ 		m_eSDLInit.wait( SDLInitState::SDLInit_Waiting );
+@@ -640,11 +654,20 @@ namespace gamescope
+ 
+ 		static uint32_t fake_timestamp = 0;
+ 
+-		wlserver.bWaylandServerRunning.wait( false );
++		// Shutdown can precede Wayland readiness (for example on startup failure).
++		while ( !wlserver.bWaylandServerRunning && !m_bStopSDL )
++			std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
++		if ( m_bStopSDL )
++			return;
+ 
+ 		SDL_Event event;
+-		while( SDL_WaitEvent( &event ) )
++		while( !m_bStopSDL )
+ 		{
++			// A bounded wait also permits shutdown if the wake event cannot queue.
++			if ( !SDL_WaitEventTimeout( &event, 100 ) )
++				continue;
++			if ( m_bStopSDL )
++				break;
+ 			fake_timestamp++;
+ 
+ 			switch( event.type )
+diff --git a/src/rendervulkan.cpp b/src/rendervulkan.cpp
+index 9ac4c70..ee37258 100644
+--- a/src/rendervulkan.cpp
++++ b/src/rendervulkan.cpp
+@@ -2915,15 +2915,22 @@ bool acquire_next_image( void )
+ 
+ static std::atomic<uint64_t> g_currentPresentWaitId = {0u};
+ static std::mutex present_wait_lock;
++static std::jthread g_presentWaitThread;
+ 
+ extern void mangoapp_output_update( uint64_t vblanktime );
+-static void present_wait_thread_func( void )
++static void present_wait_thread_func( std::stop_token stop )
+ {
+ 	uint64_t present_wait_id = 0;
++	std::stop_callback wakeOnStop( stop, [] {
++		g_currentPresentWaitId.fetch_add( 1 );
++		g_currentPresentWaitId.notify_all();
++	} );
+ 
+-	while (true)
++	while ( !stop.stop_requested() )
+ 	{
+ 		g_currentPresentWaitId.wait(present_wait_id);
++		if ( stop.stop_requested() )
++			break;
+ 
+ 		// Lock to make sure swapchain destruction is waited on and that
+ 		// it's for this swapchain.
+@@ -2934,6 +2941,8 @@ static void present_wait_thread_func( void )
+ 			if (present_wait_id != 0)
+ 			{
+ 				g_device.vk.WaitForPresentKHR( g_device.device(), g_output.swapChain, present_wait_id, 1'000'000'000lu );
++				if ( stop.stop_requested() )
++					break;
+ 				uint64_t vblanktime = get_time_in_nanos();
+ 				GetVBlankTimer().MarkVBlank( vblanktime, true );
+ 				mangoapp_output_update( vblanktime );
+@@ -2942,6 +2951,15 @@ static void present_wait_thread_func( void )
+ 	}
+ }
+ 
++void vulkan_shutdown_present_wait_thread()
++{
++	if ( g_presentWaitThread.joinable() )
++	{
++		g_presentWaitThread.request_stop();
++		g_presentWaitThread.join();
++	}
++}
++
+ void vulkan_update_swapchain_hdr_metadata( VulkanOutput_t *pOutput )
+ {
+ 	if (!g_output.swapchainHDRMetadata)
+@@ -3569,8 +3587,7 @@ bool vulkan_init( VkInstance instance, VkSurfaceKHR surface )
+ 
+ 	if ( GetBackend()->UsesVulkanSwapchain() )
+ 	{
+-		std::thread present_wait_thread( present_wait_thread_func );
+-		present_wait_thread.detach();
++		g_presentWaitThread = std::jthread( present_wait_thread_func );
+ 	}
+ 
+ 	s_bInitted = true;
+diff --git a/src/rendervulkan.hpp b/src/rendervulkan.hpp
+index 0833fc4..4a4b339 100644
+--- a/src/rendervulkan.hpp
++++ b/src/rendervulkan.hpp
+@@ -402,6 +402,7 @@ namespace CompositeDebugFlag
+ };
+ 
+ VkInstance vulkan_get_instance(void);
++void vulkan_shutdown_present_wait_thread();
+ bool vulkan_init(VkInstance instance, VkSurfaceKHR surface);
+ bool vulkan_init_formats(void);
+ bool vulkan_make_output();
+diff --git a/src/steamcompmgr.cpp b/src/steamcompmgr.cpp
+index 36df613..04f1a21 100644
+--- a/src/steamcompmgr.cpp
++++ b/src/steamcompmgr.cpp
+@@ -6416,6 +6416,8 @@ steamcompmgr_exit(void)
+ 
+ 	g_VirtualConnectorFocuses.clear();
+ 
++    // Present completion re-arms VBlank through the backend. Stop it first.
++    vulkan_shutdown_present_wait_thread();
+     gamescope::IBackend::Set( nullptr );
+ 
+     wlserver_lock();

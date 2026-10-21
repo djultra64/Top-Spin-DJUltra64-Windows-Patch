@@ -1,0 +1,92 @@
+--- a/src/ldump.c
++++ b/src/ldump.c
+@@ -44,7 +44,8 @@
+ 
+ static void DumpSize(size_t x, DumpState* D)
+ {
+- DumpBlock(&x,sizeof(x),D);
++ unsigned int y=(unsigned int)x;
++ DumpBlock(&y,sizeof(y),D);
+ }
+ 
+ static void DumpNumber(lua_Number x, DumpState* D)
+@@ -132,9 +133,8 @@
+  DumpByte(f->numparams,D);
+  DumpByte(f->is_vararg,D);
+  DumpByte(f->maxstacksize,D);
++ DumpLocals(f,D);
+  DumpLines(f,D);
+- DumpLocals(f,D);
+- DumpUpvalues(f,D);
+  DumpConstants(f,D);
+  DumpCode(f,D);
+ }
+@@ -145,14 +145,14 @@
+  DumpByte(VERSION,D);
+  DumpByte(luaU_endianness(),D);
+  DumpByte(sizeof(int),D);
+- DumpByte(sizeof(size_t),D);
++ DumpByte(4,D);
+  DumpByte(sizeof(Instruction),D);
+  DumpByte(SIZE_OP,D);
+  DumpByte(SIZE_A,D);
+  DumpByte(SIZE_B,D);
+  DumpByte(SIZE_C,D);
+  DumpByte(sizeof(lua_Number),D);
+- DumpNumber(TEST_NUMBER,D);
++ DumpNumber((lua_Number)314159265.35897934,D);
+ }
+ 
+ /*
+--- a/src/lundump.c
++++ b/src/lundump.c
+@@ -83,7 +83,7 @@
+ 
+ static size_t LoadSize (LoadState* S)
+ {
+- size_t x;
++ unsigned int x;
+  LoadBlock(S,&x,sizeof(x));
+  return x;
+ }
+@@ -193,9 +193,9 @@
+  f->numparams=LoadByte(S);
+  f->is_vararg=LoadByte(S);
+  f->maxstacksize=LoadByte(S);
++
++ LoadLocals(S,f);
+  LoadLines(S,f);
+- LoadLocals(S,f);
+- LoadUpvalues(S,f);
+  LoadConstants(S,f);
+  LoadCode(S,f);
+ #ifndef TRUST_BINARIES
+@@ -226,7 +226,7 @@
+ static void LoadHeader (LoadState* S)
+ {
+  int version;
+- lua_Number x,tx=TEST_NUMBER;
++ lua_Number x,tx=(lua_Number)314159265.35897934;
+  LoadSignature(S);
+  version=LoadByte(S);
+  if (version>VERSION)
+@@ -239,7 +239,7 @@
+ 	S->name,V(version),V(VERSION0));
+  S->swap=(luaU_endianness()!=LoadByte(S));	/* need to swap bytes? */
+  TESTSIZE(sizeof(int),"int");
+- TESTSIZE(sizeof(size_t), "size_t");
++ TESTSIZE(4, "size_t");
+  TESTSIZE(sizeof(Instruction), "Instruction");
+  TESTSIZE(SIZE_OP, "OP");
+  TESTSIZE(SIZE_A, "A");
+--- a/src/llimits.h
++++ b/src/llimits.h
+@@ -114,7 +114,7 @@
+ ** type for virtual-machine instructions
+ ** must be an unsigned with (at least) 4 bytes (see details in lopcodes.h)
+ */
+-typedef unsigned long Instruction;
++typedef unsigned int Instruction;
+ 
+ 
+ /* maximum depth for calls (unsigned short) */
