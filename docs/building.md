@@ -6,7 +6,7 @@ For normal Windows installation, use [the release instructions](windows.md). Thi
 
 ## Development requirements
 
-Use Python 3.10 or newer with the packages in `requirements.txt`. Source GUI use needs Tcl/Tk. Linux/WSL extraction and assembly need `cabextract` and GNU binutils (`as`, `objcopy`); native input compilation also needs GCC with `-m32` support and a linker supporting `i386pe`. Freeze the Windows launcher on Windows with official CPython/Tk. The release installer bundles its own CPython 3.14 runtime, Pillow and compatible Lua compiler.
+Use Python 3.10 or newer with the packages in `requirements.txt`. Source GUI use needs Tcl/Tk. Linux/WSL extraction and assembly need `cabextract` and GNU binutils (`as`, `objcopy`); native input compilation also needs GCC with `-m32` support and a linker supporting `i386pe`. Freeze the Windows launcher on Windows with official CPython/Tk. The release installer bundles its own CPython 3.14 runtime, Pillow and compatible Lua compiler. A Windows runtime executed under Wine can also run the launcher build tool; keep the Windows Python executable and build dependencies inside that Wine environment rather than using Linux PyInstaller to produce a Windows executable.
 
 Run source commands from the repository root:
 
@@ -24,14 +24,14 @@ The compatible executable hashes are listed in [Windows instructions](windows.md
 
 ```sh
 python -m tools.build_patch_release --help
-python -m tools.build_patch_release dist/TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip --reviewed-binaries /path/to/reviewed-binaries.json --original-inventory /path/to/private-source-inventory.json
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip --reviewed-binaries /path/to/reviewed-binaries.json --original-inventory /path/to/private-source-inventory.json
 ```
 
 Choose a fresh output path. The builder checks hashes, path safety, allowed destinations, required component roles, upstream notices and known original-game hashes. It rejects original game content and private game-data file types. Preserve the original-file inventory privately; do not publish it with the release.
 
 The archive's root contains `Install-Patch.cmd` and `.topspin-patch`. The payload includes launcher/input/graphics runtimes, project source, notices, patch stubs and compatible Lua/Python tooling. It contains no prepatched `TopSpin.exe`, game menu archives, generated game fonts or key. The installer generates those changes locally from the user's compatible files.
 
-`tools.install_patch` validates and plans the full change set before game writes. It preserves replaced originals under `.portable/backups/topspin-patch-v1`, creates an installation receipt and rolls back replaced files if an ordinary installation error occurs. A matching receipt allows recognition of an intact installation. It refuses an unknown executable, unsupported resources, corrupted payload or conflicting backup.
+`tools.install_patch` validates and plans the full change set before game writes. It preserves replaced originals under `.portable/backups/topspin-patch-v1`, creates an installation receipt and rolls back replaced files if an ordinary installation error occurs. A matching receipt allows recognition of an intact installation. It refuses an unknown executable, unsupported resources, corrupted payload or conflicting backup. Upgrades preserve settings and game resources, stage changed runtime files, and retain the previous receipt with replaced files under `.portable/backups/topspin-patch-updates/<payload-sha256>`. The builder requires the interpolation component to be complete when any part of it is supplied.
 
 For a developer validation without changing game files, use a complete staged payload:
 
@@ -54,7 +54,7 @@ python -m tools.windows_direct --destination build\Windows-Direct-Entry
 
 Keep the resulting `TopSpinLauncher.exe` with its `runtime-windows-launcher` directory. The direct Play entry requires .NET Framework 4. See [the native launcher guide](../native/launcher/README.md) for staging and diagnostic commands.
 
-The game-specific graphics helper, `tools.windows_graphics.stage_dgvoodoo`, accepts the exact official dgVoodoo2 2.87.5 archive and original redistribution documentation. It copies the unmodified x86 D3D8 component with Dege's notices. Windows interpolation is developed separately and is not part of v0.1.0.
+The game-specific graphics helper, `tools.windows_graphics.stage_dgvoodoo`, accepts the exact official dgVoodoo2 2.87.5 archive and original redistribution documentation. It copies the unmodified x86 D3D8 component with Dege's notices. The optional interpolation path instead uses the pinned DXVK 2.7.1 x32 D3D8/D3D9 components and the project's Windows AFMF port. See [Windows interpolation](windows-interpolation.md) for the full cross-build command, pinned inputs, synthetic checks and license details.
 
 ## Other source components
 

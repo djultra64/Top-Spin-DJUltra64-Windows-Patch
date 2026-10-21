@@ -84,6 +84,10 @@ class GameLock:
 
 
 def _save(root,settings):
+    renderer={}
+    if sys.platform=='win32':
+        from launcher.windows_framegen import renderer_updates
+        renderer=renderer_updates(root,settings.frame_generation)
     config=root/'Config.pml'
     original=config.read_bytes()
     graphics=None;graphics_original=None
@@ -103,24 +107,39 @@ def _save(root,settings):
         from tools.controller_config import remap_existing_controls
         changed=remap_existing_controls(changed,profile_from_positions(settings.menu_positions))
     updates={config:changed}
-    if graphics is not None:updates[graphics]=graphics_changed
+    updates.update(renderer)
+    prompts={}
+    if graphics is not None:
+        updates[graphics]=graphics_changed
+        if (root/'.portable/windows-framegen.json').exists():
+            import json
+            graphics_info={'version':1,'backend':'dgvoodoo2',
+                           'renderer':'dxvk-afmf' if settings.frame_generation else 'dgvoodoo2'}
+            updates[root/'.portable/windows-graphics.json']=(json.dumps(graphics_info,indent=2)+'\n').encode()
     if (root/'.portable/input.json').is_file():
         from launcher.glyphs import plan_prompt_style
         prompts=plan_prompt_style(root,settings.controller_family,settings.menu_positions)
         updates.update(prompts)
-        if (root/'.portable/integrity.json').is_file() and prompts:
-            import json
-            from launcher.integrity import manifest_with_updates
-            manifest=manifest_with_updates(root,prompts)
-            updates[root/'.portable/integrity.json']=(json.dumps(manifest,indent=2)+'\n').encode()
+    descriptor=root/'.portable/windows-graphics.json'
+    integrity_changes=dict(prompts)
+    if descriptor in updates:integrity_changes[descriptor]=updates[descriptor]
+    if (root/'.portable/integrity.json').is_file() and (integrity_changes or renderer):
+        import json
+        from launcher.integrity import manifest_with_updates
+        from launcher.windows_framegen import integrity_with_renderer_updates
+        manifest=manifest_with_updates(root,integrity_changes)
+        if renderer:manifest=integrity_with_renderer_updates(root,renderer,manifest)
+        updates[root/'.portable/integrity.json']=(json.dumps(manifest,indent=2)+'\n').encode()
     # Recoverable backup is created once; never overwrite an earlier user copy.
     backup=root/'.portable/Config.before-launcher.pml'
-    if not backup.exists():atomic_write(backup,original)
+    if not backup.exists():updates[backup]=original
     previous={path:path.read_bytes() if path.exists() else None for path in updates}
     preferences=root/'.portable/launcher.json'
     previous[preferences]=preferences.read_bytes() if preferences.exists() else None
     try:
-        for path,payload in updates.items():atomic_write(path,payload)
+        for path,payload in updates.items():
+            if payload is None:path.unlink(missing_ok=True)
+            else:atomic_write(path,payload)
         save_settings(root,settings)
     except Exception:
         for path,payload in previous.items():

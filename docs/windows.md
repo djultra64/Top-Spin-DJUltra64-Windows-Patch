@@ -4,13 +4,15 @@ Own work: **djultra64**.
 
 ## Requirements
 
-Use Windows 10/11 with a graphics driver supporting the included Direct3D 11 presentation path, .NET Framework 4 for the direct Play executable, and your own compatible Top Spin PC game folder. The patch includes its installer and launcher runtimes; you do not need to install Python or Lua.
+Use 64-bit Windows 10/11 with a graphics driver supporting the default Direct3D 11 presentation path, .NET Framework 4 for the direct Play executable, and your own compatible Top Spin PC game folder. The patch includes its installer and launcher runtimes; you do not need to install Python or Lua.
+
+Optional frame interpolation also requires a Vulkan 1.3-capable GPU/driver with the features required by the included DXVK 2.7.1 build. See [Windows interpolation](windows-interpolation.md).
 
 Use a folder your account can write to. Close the game and launcher before installation. The patch does not include the original game or a key, and it does not add a CD-key/licensing bypass.
 
 ## Install the release ZIP
 
-1. Download [TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.1.0/TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip) from [v0.1.0](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.1.0).
+1. Download [TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.0/TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip) from [v0.2.0](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.2.0).
 2. Extract its contents directly into the folder containing `TopSpin.exe`. Do not leave the patch inside an extra nested folder.
 3. Double-click **`Install-Patch.cmd`**. Wait for **Patch installed successfully**.
 4. Open **`TopSpinLauncher.exe`**, adjust settings if desired and select **Save settings** or **Play**.
@@ -30,6 +32,8 @@ Your game folder/
 Extraction stages installer files. The installer checks the executable, original menu/font variants and payload hashes, generates the changes, and only then writes game files. It adds the compatibility/input hooks, prompt resources, Quit Game row, launcher and graphics runtime. Originals replaced by the installer are saved under `.portable/backups/topspin-patch-v1`; `.portable/patch-install.json` records the installation.
 
 Keep the backup and receipt. They can contain original game content and personal configuration, so do not upload them. The installer preserves the configuration's Security section and existing keyboard profiles and keeps existing `T`/`U` saves. Re-running the same installer recognizes an intact installation; it refuses to overwrite a conflicting backup or a modified installation.
+
+To upgrade from v0.1.0, extract the v0.2.0 ZIP into the same game folder and run `Install-Patch.cmd`. The upgrade preserves launcher preferences, game configuration/key, keyboard mappings, executable, generated game resources and saves. It updates the project/runtime components and keeps replaced files plus the previous receipt under `.portable/backups/topspin-patch-updates/<payload-sha256>`. Keep the original backup as well.
 
 ## Supported executable versions
 
@@ -55,7 +59,7 @@ An unsupported executable is rejected before game writes. Keep your own original
 
 Defaults are **3840 × 2160 render / 1920 × 1080 output**, full-screen presentation, English and Xbox 360 prompts. The game-specific dgVoodoo2 runtime presents the internal backbuffer at the selected output size. Choose an output size supported by your screen; lower the render size if needed. Gameplay uses the corrected 16:9 camera. Original menus can stretch.
 
-Original timing stays at **50 FPS gameplay / 30 FPS replays and cinematics** with synchronization enabled. Windows frame generation/interpolation is not included; leave Frame generation off.
+Original timing stays at **50 FPS gameplay / 30 FPS replays and cinematics** with synchronization enabled. **Frame interpolation** is off by default. Enable it in the launcher and select **Save settings** or **Play** to switch to the included DXVK/AFMF path. Turn it off and save to restore dgVoodoo2. The switch changes presentation and adds intermediate frames without increasing the game's simulation rate. See [interpolation requirements and details](windows-interpolation.md).
 
 Choose **Controller button style** for Keyboard, Xbox, PlayStation or Nintendo Switch. Optional bindings map actions to physical positions in both menus and gameplay. Switch south/east/west/north positions are **B / A / Y / X**, while Xbox uses **A / B / X / Y**. **Auto detect (experimental)** follows the last active device where available; select a manual family when you want fixed prompts or detection is ambiguous.
 
@@ -70,6 +74,8 @@ Launcher settings are in `.portable/launcher.json`; game options/profiles are un
 For an unsupported executable or resource error, check the hashes and use your own matching game files. Do not disable the version checks. For a payload checksum error, extract a fresh copy of the release ZIP and keep the entire `.topspin-patch` folder together.
 
 For permission errors, use a user-writable game folder. If installation reports an interrupted operation or conflicting backup, keep `.portable/backups/topspin-patch-v1`, `.portable/patch-install.json` and any `.portable/install.lock` while investigating; deleting them removes recovery information. There is no automatic uninstall command in this release.
+
+If interpolation cannot start or your driver lacks its Vulkan features, turn **Frame interpolation** off in the launcher and save; the default renderer is restored. A disabled interpolation checkbox means its component is missing or needs repair. Preserve any custom `d3d8.dll`/`d3d9.dll` wrapper before restoring the packaged runtime: the launcher refuses to overwrite unrecognized renderer DLLs.
 
 Logs are in `.portable/logs`; native controller initialization status is in `.portable/input-status.txt`. Developer launcher builds and diagnostic commands are described in [Building](building.md) and [the native launcher guide](../native/launcher/README.md).
 

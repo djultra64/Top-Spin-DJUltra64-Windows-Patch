@@ -26,7 +26,10 @@ def windows_graphics_enabled(root: Path) -> bool:
     manifest=root/'.portable/windows-graphics.json'
     if not manifest.exists():return False
     try:
-        if json.loads(manifest.read_text())!={'version':1,'backend':'dgvoodoo2'}:
+        data=json.loads(manifest.read_text())
+        if (not isinstance(data,dict) or set(data)-{'version','backend','renderer'} or
+                data.get('version')!=1 or data.get('backend')!='dgvoodoo2' or
+                data.get('renderer','dgvoodoo2') not in {'dgvoodoo2','dxvk-afmf'}):
             raise ValueError('Unsupported Windows graphics runtime manifest.')
     except (OSError,json.JSONDecodeError) as exc:
         raise ValueError('Invalid Windows graphics runtime manifest.') from exc
@@ -103,8 +106,8 @@ def build_launch_plan(root: Path,settings: Settings,*,platform=None,environ=None
     elif settings.controller_family!='auto' or settings.menu_positions!='01234567':
         raise ValueError('The controller runtime is required for these controller settings.')
     if platform=='win32':
-        if settings.frame_generation:
-            raise ValueError('Frame generation is currently available with the Linux graphics runtime.')
+        from launcher.windows_framegen import configure_environment
+        configure_environment(root,env,settings.frame_generation)
         graphics=windows_graphics_enabled(root)
         if settings.internal_resolution!=settings.output_resolution and not graphics:
             raise ValueError('Separate internal and output resolutions require the Windows graphics runtime.')

@@ -19,7 +19,7 @@ import zipfile
 SOURCE_FILES = tuple('launcher/' + name + '.py' for name in (
     '__init__', '__main__', 'gui', 'process', 'steam', 'runtime', 'settings',
     'integrity', 'input_devices', 'controllers', 'glyphs', 'windows_display',
-    'steam_client', 'steam_artwork')) + tuple('tools/' + name for name in (
+    'steam_client', 'steam_artwork', 'windows_framegen')) + tuple('tools/' + name for name in (
     'install_patch.py', 'patch_game.py', 'pml.py', 'controller_config.py',
     'windows_graphics.py', 'windows_runtime.py', 'linux_runtime.py',
     'glyph_install.py', 'glyph_atlas.py', 'pam_archive.py', 'menu_quit.py',
@@ -34,13 +34,33 @@ SOURCE_ONLY_FILES = (
     'patches/portable-path.s', 'patches/portable-save-drives.s',
     'patches/portable-options-delete.s', 'patches/lua50-topspin-format.patch',
     'native/launcher/windows_entry.py', 'native/launcher/PlayTopSpin.cs',
-    'native/launcher/requirements-build.txt')
+    'native/launcher/requirements-build.txt') + tuple('native/framegen/' + name for name in (
+    'LICENSE', 'THIRD_PARTY_NOTICES.txt', 'README.md', 'afmf32.def', 'afmf64.def',
+    'build_windows.py', 'check_interpolation.py', 'run_wine_checks.py',
+    'windows_compat.c', 'windows_compat.h', 'windows_compat_test.c',
+    'windows_golden_check.c', 'windows_harness_bridge.c',
+    'windows_harness_bridge.h', 'windows_harness_functions.inc')) + (
+    'patches/afmf-windows.patch', 'patches/afmf-windows-harness.patch')
 BINARY_DESTINATIONS = frozenset((
     'TopSpinLauncher.exe', 'Play-TopSpin.exe', 'd3d8.dll',
     'runtime/input/SDL3.dll', 'runtime/input/djultra-input.dll'))
 PRIVATE_SUFFIXES = {'.pml', '.rui', '.ruirr', '.wad', '.iso', '.msi', '.cab',
                     '.key', '.reg', '.dmp', '.log', '.sav', '.pam'}
 STUB_ROLES = {'input', 'save_drives', 'options_delete'}
+FRAMEGEN_DESTINATIONS = frozenset((
+    'runtime/windows-framegen/afmf32.dll',
+    'runtime/windows-framegen/VkLayer_AFMF.json',
+    'runtime/windows-framegen/dxvk32/d3d8.dll',
+    'runtime/windows-framegen/dxvk32/d3d9.dll',
+    'runtime/windows-framegen/dgvoodoo/d3d8.dll',
+    '.portable/windows-framegen.json'))
+# Exact authentic license text distributed by upstream DXVK v2.7.1.
+FRAMEGEN_DXVK_LICENSE = 'licenses/windows-framegen/DXVK-LICENSE.txt'
+FRAMEGEN_DXVK_LICENSE_SHA256 = 'a5cb1a6ded7d2d7e92d550ba28edd21be2d1d4044662b399887351023e30ce64'
+FRAMEGEN_NOTICES = {
+    'licenses/windows-framegen/LICENSE': 'native/framegen/LICENSE',
+    'licenses/windows-framegen/THIRD_PARTY_NOTICES.txt': 'native/framegen/THIRD_PARTY_NOTICES.txt',
+}
 
 
 def safe_name(name):
@@ -84,7 +104,7 @@ def _binary_destination(name, role):
     elif role == 'installer':
         allowed = name == 'ApplyPatch.exe' or name.startswith(('runtime-applypatch/', 'runtime-installer/'))
     else:
-        allowed = (name in BINARY_DESTINATIONS or name.startswith(
+        allowed = (name in BINARY_DESTINATIONS or name in FRAMEGEN_DESTINATIONS or name.startswith(
             ('runtime-windows-launcher/', 'licenses/')))
     if not allowed:
         raise ValueError('Binary destination is not allowlisted: ' + name)
@@ -176,6 +196,35 @@ def prepare_payload(root, reviewed, original_inventory):
     missing = BINARY_DESTINATIONS - manifest['files'].keys()
     if missing or STUB_ROLES - manifest['stubs'].keys() or 'lua' not in manifest or not ({'ApplyPatch.exe', 'runtime-installer/python.exe'} & output.keys()):
         raise ValueError('Incomplete Windows patch payload; missing runtime, compiler, stubs or Windows installer: ' + ', '.join(sorted(missing)))
+    framegen = FRAMEGEN_DESTINATIONS & manifest['files'].keys()
+    if framegen:
+        if framegen != FRAMEGEN_DESTINATIONS:
+            raise ValueError('Incomplete Windows frame interpolation component')
+        for destination, source in FRAMEGEN_NOTICES.items():
+            descriptor = manifest['files'].get(destination)
+            if descriptor is None or output[descriptor['path']] != checked_read(root, source):
+                raise ValueError('Missing or altered Windows frame interpolation notice: ' + destination)
+        dxvk_notice = manifest['files'].get(FRAMEGEN_DXVK_LICENSE)
+        if dxvk_notice is None or digest(output[dxvk_notice['path']]) != FRAMEGEN_DXVK_LICENSE_SHA256:
+            raise ValueError('Missing or altered upstream DXVK v2.7.1 license')
+        for name in ('d3d8.dll', 'd3d9.dll'):
+            entry = next(entry for entry in entries
+                if entry.get('destination') == 'runtime/windows-framegen/dxvk32/' + name)
+            if FRAMEGEN_DXVK_LICENSE not in entry.get('notices', []):
+                raise ValueError('DXVK DLL must reference its upstream license notice')
+        afmf_entry = next(entry for entry in entries
+            if entry.get('destination') == 'runtime/windows-framegen/afmf32.dll')
+        if not FRAMEGEN_NOTICES.keys() <= set(afmf_entry.get('notices', [])):
+            raise ValueError('AFMF DLL must reference its own and upstream license notices')
+        # Use the same strict component schema and hash checks as the launcher.
+        # Only these reviewed files enter this disposable validation directory.
+        from launcher.windows_framegen import component
+        with tempfile.TemporaryDirectory(prefix='topspin-framegen-validation-') as folder:
+            for name in sorted(framegen):
+                path = Path(folder) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(output[manifest['files'][name]['path']])
+            component(folder)
     if 'runtime-installer/python.exe' in output:
         required = {'runtime-installer/python314.zip', 'runtime-installer/python314.dll',
                     'runtime-installer/python314._pth'}

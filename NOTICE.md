@@ -16,6 +16,12 @@ Source: https://thoseawesomeguys.com/prompts/
 
 Upstream: https://github.com/ValveSoftware/gamescope
 
+## Windows interpolation integration
+
+The original files in `native/framegen/` are the djultra64 Windows platform integration and verification tools, offered under their [component MIT license](native/framegen/LICENSE). The upstream AFMF algorithm and AMD FidelityFX shader notices remain authentic in [the component notices](native/framegen/THIRD_PARTY_NOTICES.txt). This component license does not apply to the complete project or to original game files.
+
+DXVK retains its authentic zlib/libpng license and authors. The Windows release keeps its exact DXVK version and notices alongside the optional Vulkan interpolation runtime. The game and its synchronization logic are not included in that component.
+
 ## Lua source patch
 
 `patches/lua50-topspin-format.patch` contains the local compatibility changes to upstream Lua 5.0.3. Original changes are attributed to djultra64; upstream authors and the MIT permission notice remain in [licenses/lua-5.0.3/COPYRIGHT](licenses/lua-5.0.3/COPYRIGHT). No compiled game script or Lua executable is included. See [the build recipe](docs/lua-bytecode.md).

@@ -1,0 +1,335 @@
+--- a/src/config.c
++++ b/src/config.c
+@@ -3,7 +3,11 @@
+ #include "log.h"
+ 
+ #include <errno.h>
++#ifdef _WIN32
++#include "windows_compat.h"
++#else
+ #include <pthread.h>
++#endif
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+@@ -55,6 +59,9 @@
+  * the compositor and the game it runs, and only the game should get companions. */
+ static bool process_is_gamescope(void)
+ {
++#ifdef _WIN32
++    return false; /* Native Windows has no Gamescope compositor process. */
++#else
+     char exe[4096];
+     ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+     if (n <= 0)
+@@ -62,6 +69,7 @@
+     exe[n] = '\0';
+     const char *base = strrchr(exe, '/');
+     return strcmp(base != NULL ? base + 1 : exe, "gamescope") == 0;
++#endif
+ }
+ 
+ /* Runs under pthread_once: it must not log, because logging reads the config back. */
+--- a/src/framegen_dump.c
++++ b/src/framegen_dump.c
+@@ -27,7 +27,12 @@
+     /* The directory is the user's to name, not to create: a dump that writes nothing because the
+      * path does not exist yet is a diagnosis lost. Only the last component, as mkdir -p would
+      * not: a typo in the middle of the path should still be an error. */
+-    if (mkdir(dir, 0755) != 0 && errno != EEXIST) {
++#ifdef _WIN32
++    int mkdir_result = _mkdir(dir);
++#else
++    int mkdir_result = mkdir(dir, 0755);
++#endif
++    if (mkdir_result != 0 && errno != EEXIST) {
+         AFMF_ERR("AFMF_DUMP_DIR %s cannot be created (%s); no frames will be written", dir,
+                  strerror(errno));
+         return;
+--- a/src/framegen_internal.h
++++ b/src/framegen_internal.h
+@@ -16,6 +16,9 @@
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/stat.h>
++#ifdef _WIN32
++#include <direct.h>
++#endif
+ 
+ #define AFMF_FLOW_BLOCK 8u
+ #define AFMF_DUMP_FRAMES 4u
+--- a/src/layer.c
++++ b/src/layer.c
+@@ -1,3 +1,4 @@
++#include <inttypes.h>
+ /* VK_LAYER_AFMF: loader plumbing.
+  *
+  * From a build tree the layer is found through VK_ADD_IMPLICIT_LAYER_PATH=<build>/layer when it is
+@@ -106,7 +107,7 @@
+         return VK_ERROR_EXTENSION_NOT_PRESENT;
+     VkResult res = next(instance, info, alloc, out);
+     if (res == VK_SUCCESS)
+-        AFMF_INFO("surface %p created: %s", (void *)*out, platform);
++        AFMF_INFO("surface 0x%" PRIx64 " created: %s", (uint64_t)*out, platform);
+     return res;
+ }
+ 
+@@ -118,6 +119,7 @@
+         return create_surface_logged(instance, "vk" #function, platform, info, alloc, out);      \
+     }
+ 
++SURFACE_HOOK(CreateWin32SurfaceKHR, "Win32")
+ SURFACE_HOOK(CreateWaylandSurfaceKHR, "Wayland")
+ SURFACE_HOOK(CreateXcbSurfaceKHR, "X11 (xcb)")
+ SURFACE_HOOK(CreateXlibSurfaceKHR, "X11 (xlib)")
+@@ -144,6 +146,7 @@
+ 
+ /* Only handed out when the next layer/driver has them (the platform extension is enabled). */
+ static const struct hook surface_hooks[] = {
++    HOOK(CreateWin32SurfaceKHR),
+     HOOK(CreateWaylandSurfaceKHR),   HOOK(CreateXcbSurfaceKHR),          HOOK(CreateXlibSurfaceKHR),
+     HOOK(CreateHeadlessSurfaceEXT),  HOOK(CreateDisplayPlaneSurfaceKHR),
+ };
+--- a/src/layer.h
++++ b/src/layer.h
+@@ -1,6 +1,10 @@
+ #pragma once
+ 
++#ifdef _WIN32
++#include "windows_compat.h"
++#else
+ #include <pthread.h>
++#endif
+ #include <stdbool.h>
+ #include <vulkan/vk_layer.h>
+ #include <vulkan/vulkan.h>
+--- a/src/layer_internal.h
++++ b/src/layer_internal.h
+@@ -15,11 +15,13 @@
+ #include <string.h>
+ #include <vulkan/vk_layer.h>
+ 
++#ifdef _WIN32
++#define AFMF_EXPORT /* Exported by architecture-specific .def file. */
++#else
+ #define AFMF_EXPORT __attribute__((visibility("default")))
+-
+-/* Handle logging casts VkSwapchainKHR to void*, which only holds on 64-bit builds. A 32-bit layer
+- * (for 32-bit DXVK titles) is a separate build target, not this one. */
+-_Static_assert(sizeof(void *) == 8, "64-bit builds only");
++#endif
++/* Non-dispatchable handles are always logged as uint64_t, including x86. */
++_Static_assert(sizeof(VkSwapchainKHR) == 8, "64-bit Vulkan non-dispatchable handles");
+ 
+ struct afmf_instance {
+     void *key;
+--- a/src/log.c
++++ b/src/log.c
+@@ -14,10 +14,18 @@
+ 
+     va_list ap;
+     va_start(ap, fmt);
++    #ifdef _WIN32
++    _lock_file(stderr);
++#else
+     flockfile(stderr);
++#endif
+     (void)fprintf(stderr, "[AFMF %s] ", names[level]);
+     (void)vfprintf(stderr, fmt, ap);
+     (void)fputc('\n', stderr);
++    #ifdef _WIN32
++    _unlock_file(stderr);
++#else
+     funlockfile(stderr);
++#endif
+     va_end(ap);
+ }
+--- a/src/swapchain.c
++++ b/src/swapchain.c
+@@ -1,3 +1,4 @@
++#include <inttypes.h>
+ /* Frame generation at present time: the hook the application's vkQueuePresentKHR lands in. The
+  * pieces live in the swapchain_*.c files next to it; this file is the present itself, threaded
+  * (the hook only consumes the application's semaphores and queues the frame) or inline. */
+@@ -123,7 +124,7 @@
+         };
+         VkResult presented = f->queue_present(work_queue, &companion);
+         if (presented < 0)
+-            AFMF_DEBUG("swapchain %p: generated present returned %d", (void *)sc->handle,
++            AFMF_DEBUG("swapchain 0x%" PRIx64 ": generated present returned %d", (uint64_t)sc->handle,
+                        (int)presented);
+     }
+     (void)clock_gettime(CLOCK_MONOTONIC, &t_companion);
+--- a/src/swapchain_cadence.c
++++ b/src/swapchain_cadence.c
+@@ -1,3 +1,4 @@
++#include <inttypes.h>
+ /* The cadence of the application's presents, the governor that reads it, and the spare image
+  * the next companion goes into. */
+ 
+@@ -38,13 +39,13 @@
+         /* Where the application's thread waits (the hook: with AFMF_PROFILE this is the number
+          * that says whether the layer costs the game host time), then the layer's two threads. */
+ #define STATS_LINE                                                                                \
+-    "swapchain %p: %" PRIu64 " presents, %" PRIu64 " generated, %" PRIu64 " no free image; "    \
++    "swapchain 0x%" PRIx64 ": %" PRIu64 " presents, %" PRIu64 " generated, %" PRIu64 " no free image; "    \
+     "%.2f ms between presents (%.0f real fps); in the hook %.0f us per present; work thread: "  \
+     "slot fence %.0f, acquire %.0f, record %.0f, submit %.0f; presentation thread: present "     \
+     "generated %.0f, present real %.0f, refill %.0f, gpu done +%.2f ms, pacing hold %.2f ms; "  \
+     "governor step %u"
+ #define STATS_ARGS                                                                                \
+-    (void *)sc->handle, sc->present_count, sc->generated, sc->skipped_no_image, frame_ms,       \
++    (uint64_t)sc->handle, sc->present_count, sc->generated, sc->skipped_no_image, frame_ms,       \
+         1e3 / frame_ms, 1e3 * sc->hook_ms / n, 1e3 * sc->fence_ms / n, 1e3 * sc->acquire_ms / n, \
+         1e3 * sc->record_ms / n, 1e3 * sc->submit_ms / n, 1e3 * sc->present_ms / n,             \
+         1e3 * sc->present_real_ms / n, 1e3 * sc->refill_ms / n, sc->gpu_delay_ms / n,           \
+@@ -113,8 +114,8 @@
+         if (sc->fg != NULL)
+             afmf_framegen_set_levels(sc->fg, sc->governor_step >= 1 ? 5u
+                                                                     : afmf_framegen_max_levels(sc->fg));
+-        AFMF_INFO("swapchain %p: governor step %u (generated frame ready %.0f%% into the frame): %s",
+-                  (void *)sc->handle, sc->governor_step, 100.0 * ratio,
++        AFMF_INFO("swapchain 0x%" PRIx64 ": governor step %u (generated frame ready %.0f%% into the frame): %s",
++                  (uint64_t)sc->handle, sc->governor_step, 100.0 * ratio,
+                   sc->governor_step == 0   ? "every frame, full search"
+                   : sc->governor_step == 1 ? "every frame, five search levels"
+                   : sc->governor_step == 2 ? "one companion in two"
+--- a/src/swapchain_create.c
++++ b/src/swapchain_create.c
+@@ -1,3 +1,4 @@
++#include <inttypes.h>
+ /* The swapchain's creation and destruction: what the application asked for, patched with the
+  * extra images, the usage and the present mode generation needs. */
+ 
+@@ -162,12 +163,12 @@
+         sc->gen_enabled = true;
+         VkResult gen = afmf_sc_gen_init(dev, sc);
+         if (gen != VK_SUCCESS) {
+-            AFMF_WARN("swapchain %p: generation resources failed (VkResult %d); pass-through",
+-                      (void *)sc->handle, (int)gen);
++            AFMF_WARN("swapchain 0x%" PRIx64 ": generation resources failed (VkResult %d); pass-through",
++                      (uint64_t)sc->handle, (int)gen);
+             afmf_sc_gen_teardown(dev, sc);
+         }
+     } else {
+-        AFMF_INFO("swapchain %p: pass-through (%s)", (void *)sc->handle, blocker);
++        AFMF_INFO("swapchain 0x%" PRIx64 ": pass-through (%s)", (uint64_t)sc->handle, blocker);
+     }
+ 
+     pthread_mutex_lock(&dev->lock);
+@@ -175,9 +176,9 @@
+     dev->swapchains = sc;
+     pthread_mutex_unlock(&dev->lock);
+ 
+-    AFMF_INFO("swapchain %p created: %ux%u, format %d, present mode %d (app asked %d), %u images "
++    AFMF_INFO("swapchain 0x%" PRIx64 " created: %ux%u, format %d, present mode %d (app asked %d), %u images "
+               "(app asked %u), generation %s%s",
+-              (void *)sc->handle, sc->extent.width, sc->extent.height, (int)sc->format,
++              (uint64_t)sc->handle, sc->extent.width, sc->extent.height, (int)sc->format,
+               (int)sc->present_mode, (int)info->presentMode, sc->image_count, sc->min_image_count,
+               sc->gen_enabled ? "on" : "off", sc->async ? " (layer queue)" : "");
+     return VK_SUCCESS;
+--- a/src/swapchain_destroy.c
++++ b/src/swapchain_destroy.c
+@@ -1,13 +1,14 @@
++#include <inttypes.h>
+ /* The swapchain's end: its report, its resources, and what the device's destruction leaves. */
+ 
+ #include "swapchain_internal.h"
+ 
+ static void report_and_free(struct afmf_device *dev, struct afmf_swapchain *sc)
+ {
+-    AFMF_INFO("swapchain %p destroyed after %" PRIu64 " presents: %" PRIu64 " generated, %" PRIu64
++    AFMF_INFO("swapchain 0x%" PRIx64 " destroyed after %" PRIu64 " presents: %" PRIu64 " generated, %" PRIu64
+               " skipped (%" PRIu64 " no free image, %" PRIu64 " no history, %" PRIu64
+               " held back by the governor)",
+-              (void *)sc->handle, sc->present_count, sc->generated,
++              (uint64_t)sc->handle, sc->present_count, sc->generated,
+               sc->skipped_no_image + sc->skipped_no_history + sc->reduced_frames,
+               sc->skipped_no_image, sc->skipped_no_history, sc->reduced_frames);
+     afmf_sc_gen_teardown(dev, sc);
+@@ -46,7 +47,7 @@
+         if (sc != NULL)
+             report_and_free(dev, sc);
+         else
+-            AFMF_WARN("destroying swapchain %p the layer never saw", (void *)swapchain);
++            AFMF_WARN("destroying swapchain 0x%" PRIx64 " the layer never saw", (uint64_t)swapchain);
+     }
+     dev->fns.destroy_swapchain(dev->handle, swapchain, alloc);
+ }
+@@ -68,7 +69,7 @@
+ 
+     while (sc != NULL) {
+         struct afmf_swapchain *next = sc->next;
+-        AFMF_WARN("swapchain %p still alive at device destruction", (void *)sc->handle);
++        AFMF_WARN("swapchain 0x%" PRIx64 " still alive at device destruction", (uint64_t)sc->handle);
+         report_and_free(dev, sc);
+         sc = next;
+     }
+--- a/src/swapchain_resources.c
++++ b/src/swapchain_resources.c
+@@ -1,3 +1,4 @@
++#include <inttypes.h>
+ /* The swapchain's generation resources: the images, semaphores, fences and command pool one
+  * swapchain's generation runs on, and their teardown. */
+ 
+@@ -104,7 +105,7 @@
+         VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+     if (family >= dev->queue_family_count ||
+         (dev->queue_families[family].queueFlags & copy_capable) == 0) {
+-        AFMF_WARN("swapchain %p: presenting queue family %u cannot copy images", (void *)sc->handle,
++        AFMF_WARN("swapchain 0x%" PRIx64 ": presenting queue family %u cannot copy images", (uint64_t)sc->handle,
+                   family);
+         return false;
+     }
+@@ -125,7 +126,7 @@
+         .commandBufferCount = 1,
+     };
+     if (dev->set_loader_data == NULL) {
+-        AFMF_WARN("swapchain %p: loader offered no pfnSetDeviceLoaderData", (void *)sc->handle);
++        AFMF_WARN("swapchain 0x%" PRIx64 ": loader offered no pfnSetDeviceLoaderData", (uint64_t)sc->handle);
+         return false;
+     }
+     for (uint32_t i = 0; i < sc->image_count; i++) {
+@@ -164,7 +165,7 @@
+          * answers must not hang the application's teardown. */
+         if (sc->spare_valid &&
+             f->wait_for_fences(dev->handle, 1, &sc->spare_fence, VK_TRUE, 1000000000ull) != VK_SUCCESS)
+-            AFMF_WARN("swapchain %p: spare image never released", (void *)sc->handle);
++            AFMF_WARN("swapchain 0x%" PRIx64 ": spare image never released", (uint64_t)sc->handle);
+         f->destroy_fence(dev->handle, sc->spare_fence, NULL);
+         sc->spare_fence = VK_NULL_HANDLE;
+         sc->spare_valid = false;
+@@ -205,7 +206,7 @@
+  * engine, so the resources stay until the swapchain is destroyed. */
+ void afmf_sc_gen_disable(struct afmf_swapchain *sc, const char *why)
+ {
+-    AFMF_WARN("swapchain %p: %s; pass-through from now on", (void *)sc->handle, why);
++    AFMF_WARN("swapchain 0x%" PRIx64 ": %s; pass-through from now on", (uint64_t)sc->handle, why);
+     afmf_sc_presenter_stop(sc);
+     sc->gen_enabled = false;
+ }
+--- a/src/swapchain_threads.c
++++ b/src/swapchain_threads.c
+@@ -1,3 +1,4 @@
++#include <inttypes.h>
+ /* The two threads' lifetime: started on first use, drained and joined at teardown, the work
+  * thread first since it feeds the other. */
+ 
+@@ -36,14 +37,14 @@
+         return false;
+     if (!sc->presenter_running) {
+         if (pthread_create(&sc->presenter, NULL, afmf_sc_presenter_main, sc) != 0) {
+-            AFMF_WARN("swapchain %p: no presentation thread; presenting inline", (void *)sc->handle);
++            AFMF_WARN("swapchain 0x%" PRIx64 ": no presentation thread; presenting inline", (uint64_t)sc->handle);
+             sc->presenter_stop = true; /* do not retry every frame */
+             return false;
+         }
+         sc->presenter_running = true;
+     }
+     if (pthread_create(&sc->worker, NULL, afmf_sc_worker_main, sc) != 0) {
+-        AFMF_WARN("swapchain %p: no work thread; presenting inline", (void *)sc->handle);
++        AFMF_WARN("swapchain 0x%" PRIx64 ": no work thread; presenting inline", (uint64_t)sc->handle);
+         sc->worker_stop = true;
+         return false;
+     }

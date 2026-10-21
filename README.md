@@ -6,17 +6,18 @@ The patch contains project code and redistributable dependencies. **You need you
 
 ## Download and install on Windows
 
-1. Download [TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.1.0/TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip) from [the v0.1.0 release](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.1.0).
+1. Download [TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.0/TopSpin-DJUltra64-Windows-Patch-v0.2.0.zip) from [the v0.2.0 release](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.2.0).
 2. Close the game and launcher. Extract the ZIP **directly into the game folder containing `TopSpin.exe`**. `Install-Patch.cmd` and `.topspin-patch` must sit beside `TopSpin.exe`.
 3. Double-click **`Install-Patch.cmd`** and wait for the success message. The installer checks the supported executable, game resources and payload before changing game files, and backs up replaced originals locally.
 4. Open **`TopSpinLauncher.exe`** to configure graphics and controls, or **`Play-TopSpin.exe`** to start with saved settings.
 
-No separate Python installation is needed. Keep the included runtime folders with the launcher. See [Windows instructions](docs/windows.md) for requirements, supported versions, backups and troubleshooting.
+Upgrading from v0.1.0 uses the same steps and preserves existing settings, controls and saves. No separate Python installation is needed. Keep the included runtime folders with the launcher. See [Windows instructions](docs/windows.md) for requirements, supported versions, backups and troubleshooting.
 
 ## Features
 
 - Corrected **16:9 gameplay camera** and internal rendering up to **4K**, with a separate output resolution. Original menus can remain stretched.
 - Original **50 FPS gameplay / 30 FPS replay and cinematic timing**, with synchronization preserved.
+- Optional **Windows frame interpolation**, with a reversible renderer switch and the original simulation timing preserved.
 - English configuration launcher and direct Play shortcut.
 - Xbox 360/One/Series, PlayStation 4/5 and Nintendo Switch prompt styles, manual family selection and optional action remapping. Switch's **B/A/Y/X** physical layout is handled separately from Xbox's **A/B/X/Y**.
 - **Quit Game** added to the main menu; the game's FPS counter is off by default.
@@ -24,7 +25,7 @@ No separate Python installation is needed. Keep the included runtime folders wit
 
 Installation defaults are **3840 × 2160 internal / 1920 × 1080 output**, English, Xbox 360 prompts and frame generation off. Change them in the launcher to suit your display and controller. Automatic last-device prompt switching is available as an experimental option; manual styles provide a fixed selection.
 
-Windows interpolation is being developed separately and is **not included in this release**. The Linux development runtime has a separate frame-generation path that adds presentation frames without increasing the game's simulation rate.
+To enable Windows interpolation, open **TopSpinLauncher.exe**, select **Frame interpolation** and choose **Save settings** or **Play**. It uses the included DXVK/AFMF component and requires a compatible Vulkan driver. Turn it off to restore the default dgVoodoo2 renderer. See [Windows interpolation](docs/windows-interpolation.md) for requirements and component details. The Linux development runtime has a separate frame-generation path.
 
 ## Your copy of the game
 
@@ -40,4 +41,4 @@ There is **no drop-in Linux binary release** in this Windows ZIP. Linux source/r
 
 For component builds and release assembly, see [Building](docs/building.md). For launcher controls, see [the launcher reference](launcher/README.md).
 
-Own work is attributed exclusively to **djultra64**. Third-party authorship and required license notices remain intact. No project-wide open-source license has been selected; see [NOTICE.md](NOTICE.md). Do not redistribute original game files, generated game resources, personal keys or the installer's local backups.
+Own work is attributed exclusively to **djultra64**. Third-party authorship and required license notices remain intact. The Windows interpolation integration has its own [MIT license](native/framegen/LICENSE); other project code retains the terms stated in [NOTICE.md](NOTICE.md). Do not redistribute original game files, generated game resources, personal keys or the installer's local backups.

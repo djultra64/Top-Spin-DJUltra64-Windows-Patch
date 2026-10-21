@@ -20,7 +20,7 @@ Choose settings, then **Save settings** or **Play**. Launcher settings stay in `
 - **Full screen** uses borderless presentation on Windows.
 - Gameplay uses the corrected 16:9 camera. Original menus can remain stretched.
 - Timing stays at **50 FPS gameplay / 30 FPS replays and cinematics** with synchronization enabled.
-- **Frame generation** is available through the Linux runtime. Windows interpolation is not included in v0.1.0; leave this option off on Windows.
+- **Frame interpolation** on Windows uses the included DXVK/AFMF component and is off by default. Enable it, then select **Save settings** or **Play**. Disable it and save to restore dgVoodoo2. It requires a compatible Vulkan driver; see [Windows interpolation](../docs/windows-interpolation.md). Linux retains its separate **Frame generation** option.
 
 Windows installation defaults are 3840 × 2160 render / 1920 × 1080 output, English and Xbox 360 prompts. The game FPS counter is disabled, and **Quit Game** is available in the main menu.
 
@@ -46,4 +46,4 @@ On Linux, leave Steam's forced compatibility tool disabled because the launcher 
 
 Logs are in `.portable/logs`; native controller initialization status is in `.portable/input-status.txt`. Windows diagnostic modes `--self-test <absolute result.json>` and `--verify-files <absolute result.json>` run without starting the game; see [the native launcher guide](../native/launcher/README.md).
 
-Installer originals are under `.portable/backups/topspin-patch-v1`, and the receipt is `.portable/patch-install.json`. Keep these files for recovery. Backups, generated game resources, personal keys and complete game folders belong only in your private installation, not public uploads.
+Installer originals are under `.portable/backups/topspin-patch-v1`, and the receipt is `.portable/patch-install.json`. Upgrades keep replaced project/runtime files and the previous receipt under `.portable/backups/topspin-patch-updates/<payload-sha256>` while preserving preferences, controls and saves. Keep these files for recovery. Backups, generated game resources, personal keys and complete game folders belong only in your private installation, not public uploads.

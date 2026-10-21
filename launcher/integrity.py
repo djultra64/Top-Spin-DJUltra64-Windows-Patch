@@ -24,7 +24,8 @@ def relative_path(value):
 
 def is_mutable(name):
     path=relative_path(name)
-    if path.as_posix() in {'.portable/input.json','.portable/runtime.json','.portable/windows-graphics.json'}:return False
+    if path.as_posix() in {'.portable/input.json','.portable/runtime.json','.portable/windows-graphics.json',
+                          '.portable/windows-framegen.json'}:return False
     return (path.parts[0].lower() in {'t','u','z','.portable'} or
             path.name.lower() in {'config.pml','dgvoodoo.conf'})
 

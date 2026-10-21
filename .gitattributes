@@ -1,2 +1,5 @@
 # Unified patch context lines intentionally contain a leading space.
 *.patch -whitespace
+
+# Preserve authentic upstream notice formatting.
+native/framegen/THIRD_PARTY_NOTICES.txt -whitespace

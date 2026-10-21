@@ -2,7 +2,7 @@
 
 Own work: **djultra64**.
 
-The downloadable Windows ZIP uses a Windows installer/runtime. It is **not a native Linux drop-in patch**. Linux currently uses the source tools and a separately assembled runtime; no Linux binary release is supplied here. See [Building](building.md) for input compatibility and the source workflow.
+The v0.2.0 Windows ZIP includes a Windows interpolation component and uses a Windows installer/runtime. It is **not a native Linux drop-in patch**. Linux currently uses the source tools and a separately assembled runtime; no Linux binary release is supplied here. See [Building](building.md) for input compatibility and the source workflow.
 
 ## Runtime requirements
 
@@ -47,7 +47,7 @@ python -m launcher --game-dir /path/to/private-candidate --play
 
 Render resolution selects the internal 16:9 image up to 3840 × 2160; display resolution selects the output size. Gamescope supplies separate internal/output presentation. The gameplay camera is corrected for 16:9, while original menus can stretch.
 
-Original timing remains **50 FPS gameplay / 30 FPS replays and cinematics**. The Linux frame-generation path uses Gamescope and the AFMF Vulkan layer to add presentation frames without raising the simulation limit. It requires the complete graphics runtime and suitable GPU/driver support.
+Original timing remains **50 FPS gameplay / 30 FPS replays and cinematics**. The Linux frame-generation path uses Gamescope and the Linux AFMF Vulkan layer to add presentation frames without raising the simulation limit. The Windows port in v0.2.0 is a separate component; do not substitute its DLLs for the Linux layer. It requires the complete graphics runtime and suitable GPU/driver support.
 
 Manual **Controller button style** choices cover Xbox, PlayStation and Nintendo Switch. Optional action mappings apply to menus and gameplay. Switch south/east/west/north positions are **B / A / Y / X**, compared with Xbox **A / B / X / Y**. **Auto detect (experimental)** follows the last active device where available; manual selection provides a fixed family when detection is ambiguous.
 

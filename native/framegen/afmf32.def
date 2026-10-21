@@ -1,0 +1,3 @@
+LIBRARY afmf32
+EXPORTS
+    vkNegotiateLoaderLayerInterfaceVersion=vkNegotiateLoaderLayerInterfaceVersion@4

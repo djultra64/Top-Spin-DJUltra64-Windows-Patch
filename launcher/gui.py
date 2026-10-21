@@ -46,7 +46,9 @@ def show_launcher(game: Path,settings: Settings):
                for name in ['internal_resolution','output_resolution','proton_dir']}
     toggles={name:tk.BooleanVar(value=getattr(settings,name))
              for name in ['fullscreen','frame_generation']}
-    if sys.platform=='win32':toggles['frame_generation'].set(False)
+    from launcher.windows_framegen import available as windows_framegen_available
+    fg_available=sys.platform!='win32' or windows_framegen_available(game)
+    if not fg_available:toggles['frame_generation'].set(False)
     for row,(name,label) in enumerate([('internal_resolution','Render resolution'),
                                        ('output_resolution','Display resolution')]):
         ttk.Label(form,text=label).grid(row=row,column=0,sticky='w',pady=5)
@@ -54,13 +56,13 @@ def show_launcher(game: Path,settings: Settings):
                      state='readonly',width=22).grid(row=row,column=1,sticky='ew',padx=(24,0))
     form.columnconfigure(1,weight=1)
     ttk.Checkbutton(form,text='Full screen',variable=toggles['fullscreen']).grid(row=2,column=0,sticky='w',pady=8)
-    fg=ttk.Checkbutton(form,text='Frame generation (Linux)' if sys.platform=='win32' else 'Frame generation',variable=toggles['frame_generation'])
+    fg=ttk.Checkbutton(form,text='Frame interpolation' if sys.platform=='win32' else 'Frame generation',variable=toggles['frame_generation'])
     fg.grid(row=2,column=1,sticky='w',padx=(24,0))
-    if sys.platform=='win32':fg.state(['disabled'])
+    if not fg_available:fg.state(['disabled'])
     ttk.Label(form,text='Original game speed: 50 FPS gameplay / 30 FPS replays.',
               style='Sub.TLabel').grid(row=3,column=0,columnspan=2,sticky='w',pady=(4,0))
-    ttk.Label(form,text=('Windows frame generation is not included in this build.' if sys.platform=='win32' else
-                        'Frame generation adds smoothness without speeding up the game.'),
+    ttk.Label(form,text=('Windows frame interpolation component is not installed or needs repair.' if not fg_available else
+                        'Frame interpolation adds smoothness without speeding up the game.'),
               style='Sub.TLabel').grid(row=4,column=0,columnspan=2,sticky='w')
     def update_proton_picker():
         if sys.platform!='linux':return
@@ -117,7 +119,7 @@ def show_launcher(game: Path,settings: Settings):
     ttk.Label(control_page,text=note,wraplength=580,style='Sub.TLabel').grid(row=10,column=0,columnspan=2,sticky='w',pady=(12,0))
     if not available:
         for widget in control_widgets:widget.state(['disabled'])
-    status=tk.StringVar(value='Development build. Some platform and controller features are pending.')
+    status=tk.StringVar(value='Portable graphics, display and controller settings.')
     ttk.Label(main,textvariable=status,wraplength=590,style='Sub.TLabel').pack(side='bottom',before=pages,fill='x',pady=(10,14))
     running=[False]
     def selection():

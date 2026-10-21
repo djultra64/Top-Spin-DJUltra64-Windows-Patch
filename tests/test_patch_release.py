@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 from tools.build_patch_release import (
-    BINARY_DESTINATIONS, SOURCE_FILES, SOURCE_ONLY_FILES, build_release, prepare_payload, safe_name)
+    BINARY_DESTINATIONS, FRAMEGEN_DESTINATIONS, FRAMEGEN_NOTICES, FRAMEGEN_DXVK_LICENSE, SOURCE_FILES, SOURCE_ONLY_FILES, build_release, prepare_payload, safe_name)
 
 
 def sha(data): return hashlib.sha256(data).hexdigest()
@@ -37,6 +37,59 @@ class PatchReleaseTests(unittest.TestCase):
             write(source, data)
             entries.append({'source': source, 'role': role, 'sha256': sha(data), 'notices': ['licenses/own.txt']})
         return {'files': entries}, {'files': [{'sha256': sha(b'ORIGINAL GAME BYTES')}]}
+
+    def framegen_fixture(self, root, reviewed, mutation=None):
+        manifest_name = '.portable/windows-framegen.json'
+        names = FRAMEGEN_DESTINATIONS - {manifest_name}
+        data = {name: ('distinct-FG-component:' + name).encode() for name in names}
+        layer_name = 'runtime/windows-framegen/VkLayer_AFMF.json'
+        library = 'other.dll' if mutation == 'layer_path' else './afmf32.dll'
+        data[layer_name] = json.dumps({'layer': {'name': 'VK_LAYER_AFMF', 'library_path': library}}).encode()
+        if mutation == 'wrapper_alias':
+            data['runtime/windows-framegen/dxvk32/d3d9.dll'] = data['runtime/windows-framegen/dxvk32/d3d8.dll']
+        hashes = {name: sha(payload) for name, payload in data.items()}
+        if mutation == 'component_hash': hashes['runtime/windows-framegen/afmf32.dll'] = '0' * 64
+        if mutation == 'extra_component': hashes['runtime/windows-framegen/unreviewed.dll'] = '0' * 64
+        data[manifest_name] = json.dumps({'version': 1, 'files': hashes}).encode()
+        if mutation == 'partial': del data[layer_name]
+        if mutation == 'unknown_destination': data['runtime/windows-framegen/unreviewed.dll'] = b'unreviewed'
+        dxvk_text = b'Authentic synthetic DXVK fixture notice'
+        license_pin = patch('tools.build_patch_release.FRAMEGEN_DXVK_LICENSE_SHA256', sha(dxvk_text))
+        license_pin.start(); self.addCleanup(license_pin.stop)
+        if mutation != 'missing_dxvk_notice': data[FRAMEGEN_DXVK_LICENSE] = dxvk_text
+        if mutation == 'altered_dxvk_notice': data[FRAMEGEN_DXVK_LICENSE] += b'changed'
+        if mutation != 'missing_notice':
+            for destination, source in FRAMEGEN_NOTICES.items():
+                data[destination] = (root / source).read_bytes()
+            if mutation == 'altered_notice': data[next(iter(FRAMEGEN_NOTICES))] += b'changed'
+        for index, (destination, payload) in enumerate(sorted(data.items())):
+            source = 'build/reviewed/fg-' + str(index) + '.bin'
+            (root / source).write_bytes(payload)
+            reviewed['files'].append({'source': source, 'destination': destination,
+                'sha256': sha(payload), 'notices': (list(FRAMEGEN_NOTICES) if
+                    destination == 'runtime/windows-framegen/afmf32.dll' and mutation != 'missing_notice'
+                    else [FRAMEGEN_DXVK_LICENSE] if '/dxvk32/' in destination and mutation != 'missing_dxvk_notice'
+                    else ['licenses/own.txt'])})
+
+    def test_optional_framegen_complete_component_and_sources_are_packaged(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); reviewed, inventory = self.fixture(root)
+            self.framegen_fixture(root, reviewed)
+            output = prepare_payload(root, reviewed, inventory)
+            manifest = json.loads(output['manifest.json'])
+            self.assertTrue(FRAMEGEN_DESTINATIONS <= manifest['files'].keys())
+            self.assertIn('files/launcher/windows_framegen.py', output)
+            self.assertTrue(all('files/' + name in output for name in FRAMEGEN_DESTINATIONS))
+
+    def test_optional_framegen_rejects_partial_corrupt_or_unreviewed_component(self):
+        for mutation in ('partial', 'component_hash', 'extra_component', 'layer_path',
+                         'wrapper_alias', 'unknown_destination', 'missing_notice', 'altered_notice', 'missing_dxvk_notice', 'altered_dxvk_notice'):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder); reviewed, inventory = self.fixture(root)
+                self.framegen_fixture(root, reviewed, mutation)
+                destination = root / 'blocked-framegen.zip'
+                with self.assertRaises(ValueError): build_release(root, destination, reviewed, inventory)
+                self.assertFalse(destination.exists())
 
     def test_archive_extracts_only_staging_and_new_entrypoint(self):
         with tempfile.TemporaryDirectory() as folder:

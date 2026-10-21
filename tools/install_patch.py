@@ -97,11 +97,17 @@ def installed_receipt(game: Path):
     if receipt.get('version') != 1 or receipt.get('author') != 'djultra64' or not isinstance(receipt.get('files'), dict):
         raise ValueError('Unsupported installation receipt.')
     from launcher.integrity import is_mutable
+    has_framegen = safe_path(game, '.portable/windows-framegen.json').exists()
+    if has_framegen:
+        validate_renderer_state(game)
     for name, record in receipt['files'].items():
-        if is_mutable(name):
+        if (is_mutable(name) and name != '.portable/windows-framegen.json') or (
+                has_framegen and name == '.portable/windows-graphics.json'):
             continue
         current = safe_path(game, name)
         if not current.is_file() or digest(current.read_bytes()) != record['sha256']:
+            if name in ('d3d8.dll', 'd3d9.dll') and has_framegen:
+                continue
             from launcher.glyphs import BASELINE_SHA256, plan_prompt_style
             if name in BASELINE_SHA256 and current.is_file():
                 state = json.loads(safe_path(game, '.portable/glyphs/style.json').read_text())
@@ -138,6 +144,13 @@ def build_install_integrity(game, changes):
     """Cover original game/runtime files as well as locally generated outputs."""
     from launcher.integrity import is_mutable
     names = set(changes)
+    # These descriptors live beside private backups and settings, so their
+    # immutable membership must survive upgrades without crawling .portable.
+    for name in ('.portable/input.json', '.portable/runtime.json',
+                 '.portable/windows-graphics.json', '.portable/windows-framegen.json'):
+        path = safe_path(game, name)
+        if path.is_file():
+            names.add(name)
     excluded = {'.topspin-patch', '.git', '.agents', '.codex', 't', 'u', 'z'}
     for directory, folders, files in os.walk(game, followlinks=False):
         parent = Path(directory)
@@ -169,29 +182,12 @@ def build_install_integrity(game, changes):
     return {'version': 1, 'files': result}
 
 
-def plan_install(game: Path, payload: Path):
-    """Validate and construct all output bytes in memory, without game writes."""
-    game = Path(game).absolute()
-    if game.is_symlink() or not game.is_dir():
-        raise ValueError('Choose an existing, non-symlink game folder.')
-    raw = safe_path(game, 'TopSpin.exe').read_bytes()
-    source_hash = digest(raw)
-    if source_hash not in (SOURCE_SHA256, WINDOWED_BACKBUFFER_SOURCE_SHA256, WINDOWS_SHA256):
-        raise ValueError('Unsupported TopSpin.exe. This patch requires the exact supported game version.')
-    receipt = installed_receipt(game)
-    if receipt:
-        return {}, receipt
-    if safe_path(game, BACKUP).exists():
-        raise ValueError('A private backup already exists without a valid receipt. Recover it before installing.')
-    # Reject linked media before planners can read anything outside this tree.
-    media = safe_path(game, 'Media')
-    for entry in media.rglob('*'):
-        if entry.is_symlink():
-            raise ValueError('Symbolic links are not supported in game media.')
+def validated_payload(game, payload):
     payload = Path(payload).absolute()
     if payload.is_symlink():
         raise ValueError('The payload folder must not be a symbolic link.')
-    manifest = json.loads(safe_path(payload, 'manifest.json').read_text(encoding='utf-8'))
+    manifest_raw = safe_path(payload, 'manifest.json').read_bytes()
+    manifest = json.loads(manifest_raw)
     if (set(manifest) not in ({'version', 'files', 'stubs', 'lua'},
                                {'version', 'author', 'files', 'stubs', 'lua'})
             or manifest['version'] != 1 or manifest.get('author', 'djultra64') != 'djultra64'):
@@ -210,6 +206,112 @@ def plan_install(game: Path, payload: Path):
         raise ValueError('The three prepared portability stubs are required.')
     prepared = {key: payload_bytes(payload, descriptor) for key, descriptor in stubs.items()}
     payload_bytes(payload, manifest['lua'])
+    validate_framegen_payload(changes)
+    return changes, prepared, manifest['lua'], digest(manifest_raw)
+
+
+def validate_framegen_payload(overlay):
+    from launcher.windows_framegen import FILES, MANIFEST, component
+    selected = set(FILES) | {MANIFEST}
+    if not (selected & overlay.keys()):
+        return
+    if not selected <= overlay.keys():
+        raise ValueError('The complete Windows interpolation component is required.')
+    # Only redistributable runtime bytes enter this scratch tree, never assets.
+    with tempfile.TemporaryDirectory(prefix='topspin-runtime-preflight-') as folder:
+        root = Path(folder)
+        for name in selected:
+            path = safe_path(root, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(overlay[name])
+        return component(root)
+
+
+def validate_renderer_state(game):
+    """Recognize only the packaged default or a fully validated local switch."""
+    from tools.windows_graphics import DLL_SHA256
+    d8 = safe_path(game, 'd3d8.dll')
+    framegen_manifest = safe_path(game, '.portable/windows-framegen.json')
+    if not framegen_manifest.exists():
+        if safe_path(game, 'd3d9.dll').exists():
+            raise ValueError('An unrecognized d3d9.dll is installed; preserve the custom wrapper before upgrading.')
+        if d8.exists() and digest(d8.read_bytes()) != DLL_SHA256:
+            raise ValueError('Unrecognized d3d8.dll; preserve the custom renderer and restore the packaged wrapper before upgrading.')
+        return 'dgvoodoo2'
+    from launcher.windows_framegen import component
+    components = component(game)
+    graphics = json.loads(safe_path(game, '.portable/windows-graphics.json').read_text())
+    if (not isinstance(graphics, dict) or set(graphics) not in
+            ({'version', 'backend'}, {'version', 'backend', 'renderer'}) or
+            graphics.get('version') != 1 or graphics.get('backend') != 'dgvoodoo2'):
+        raise ValueError('Unsupported Windows renderer state.')
+    selected = graphics.get('renderer', 'dgvoodoo2')
+    if selected not in ('dgvoodoo2', 'dxvk-afmf'):
+        raise ValueError('Unsupported Windows renderer selection.')
+    expected = components['dxvk32/d3d8.dll' if selected == 'dxvk-afmf' else 'dgvoodoo/d3d8.dll']
+    if not d8.is_file() or d8.read_bytes() != expected:
+        raise ValueError('The selected Windows renderer differs from its validated component.')
+    d9 = safe_path(game, 'd3d9.dll')
+    if selected == 'dxvk-afmf':
+        if not d9.is_file() or d9.read_bytes() != components['dxvk32/d3d9.dll']:
+            raise ValueError('The selected Windows Direct3D 9 renderer is missing or changed.')
+    elif d9.exists():
+        raise ValueError('An unexpected d3d9.dll is installed; preserve it before upgrading.')
+    return selected
+
+
+def plan_upgrade(game, payload, receipt):
+    overlay, _stubs, _lua, manifest_hash = validated_payload(game, payload)
+    selected_renderer = validate_renderer_state(game)
+    if receipt.get('payload_manifest_sha256') == manifest_hash:
+        return {}, receipt
+    preserve = {'dgVoodoo.conf', 'd3d8.dll', '.portable/launcher.json',
+                '.portable/input.json', '.portable/windows-graphics.json'}
+    changes = {}
+    for name, raw in overlay.items():
+        if name in preserve or name.startswith('.portable/glyphs/'):
+            continue
+        path = safe_path(game, name)
+        if not path.is_file() or path.read_bytes() != raw:
+            changes[name] = raw
+    new_component = validate_framegen_payload(overlay)
+    if new_component is not None:
+        selected_d8 = new_component['dxvk32/d3d8.dll' if selected_renderer == 'dxvk-afmf' else 'dgvoodoo/d3d8.dll']
+        if safe_path(game, 'd3d8.dll').read_bytes() != selected_d8:
+            changes['d3d8.dll'] = selected_d8
+        if selected_renderer == 'dxvk-afmf' and safe_path(game, 'd3d9.dll').read_bytes() != new_component['dxvk32/d3d9.dll']:
+            changes['d3d9.dll'] = new_component['dxvk32/d3d9.dll']
+    # Local game resources remain untouched. Integrity includes unchanged game
+    # bytes, authorized renderer/font state and the complete new runtime.
+    changes['.portable/integrity.json'] = json_bytes(build_install_integrity(game, changes))
+    metadata = dict(receipt)
+    metadata.update(operation='upgrade', status='validated',
+                    payload_manifest_sha256=manifest_hash,
+                    _previous_receipt_sha256=digest(safe_path(game, RECEIPT).read_bytes()))
+    return changes, metadata
+
+
+def plan_install(game: Path, payload: Path):
+    """Validate and construct all output bytes in memory, without game writes."""
+    game = Path(game).absolute()
+    if game.is_symlink() or not game.is_dir():
+        raise ValueError('Choose an existing, non-symlink game folder.')
+    raw = safe_path(game, 'TopSpin.exe').read_bytes()
+    source_hash = digest(raw)
+    if source_hash not in (SOURCE_SHA256, WINDOWED_BACKBUFFER_SOURCE_SHA256, WINDOWS_SHA256):
+        raise ValueError('Unsupported TopSpin.exe. This patch requires the exact supported game version.')
+    receipt = installed_receipt(game)
+    if receipt:
+        return plan_upgrade(game, payload, receipt)
+    validate_renderer_state(game)
+    if safe_path(game, BACKUP).exists():
+        raise ValueError('A private backup already exists without a valid receipt. Recover it before installing.')
+    # Reject linked media before planners can read anything outside this tree.
+    media = safe_path(game, 'Media')
+    for entry in media.rglob('*'):
+        if entry.is_symlink():
+            raise ValueError('Symbolic links are not supported in game media.')
+    changes, prepared, lua_descriptor, manifest_hash = validated_payload(game, payload)
     if source_hash == SOURCE_SHA256:
         raw = patch_executable(raw, prepared['input'], 16/9,
                                fix_options_save=True, fix_career_storage=True,
@@ -244,7 +346,7 @@ def plan_install(game: Path, payload: Path):
     from tools.glyph_install import plan_font_archives, _replace
     from tools.menu_quit import patch_main_menu, MEMBER_SHA256
     menu_changed = patch_main_menu(safe_path(game, MENU).read_bytes(),
-                                   safe_path(payload, manifest['lua']['path']))
+                                   safe_path(Path(payload).absolute(), lua_descriptor['path']))
     fonts = plan_font_archives(game)
     for path, data in fonts.items():
         changes[path.relative_to(game).as_posix()] = data
@@ -264,7 +366,7 @@ def plan_install(game: Path, payload: Path):
         if path.exists() and not path.is_dir():
             raise ValueError('The local save path is not a directory: '+folder)
     return changes, {'version': 1, 'author': 'djultra64', 'source_sha256': source_hash,
-                     'status': 'validated'}
+                     'status': 'validated', 'payload_manifest_sha256': manifest_hash}
 
 
 def _write_exclusive(path: Path, data: bytes):
@@ -304,7 +406,15 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
         paths[name] = safe_path(game, name)
         if _protected(name):
             raise ValueError('Protected installation path: '+name)
-    backup = safe_path(game, BACKUP)
+    metadata = dict(metadata or {})
+    upgrading = metadata.get('operation') == 'upgrade'
+    backup_name = BACKUP
+    if upgrading:
+        manifest_hash = metadata.get('payload_manifest_sha256', '')
+        if len(manifest_hash) != 64 or any(c not in '0123456789abcdef' for c in manifest_hash):
+            raise ValueError('Invalid upgrade manifest hash.')
+        backup_name = '.portable/backups/topspin-patch-updates/'+manifest_hash
+    backup = safe_path(game, backup_name)
     if backup.exists():
         raise ValueError('The private backup already exists; it will never be overwritten.')
     for folder in ('T', 'U'):
@@ -312,7 +422,13 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
         if save_folder.exists() and not save_folder.is_dir():
             raise ValueError('The local save path is not a directory: '+folder)
     receipt_path = safe_path(game, RECEIPT)
-    if receipt_path.exists():
+    previous_receipt = receipt_path.read_bytes() if receipt_path.exists() else None
+    if upgrading:
+        installed_receipt(game)
+        validate_renderer_state(game)
+        if previous_receipt is None or digest(previous_receipt) != metadata.get('_previous_receipt_sha256'):
+            raise ValueError('The previous installation receipt changed during upgrade planning.')
+    elif previous_receipt is not None:
         raise ValueError('The installation receipt already exists.')
     # A process lock also leaves a clear refusal after a power interruption.
     lock = safe_path(game, '.portable/install.lock')
@@ -326,11 +442,19 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
     written = []
     created_dirs = []
     backup_created = False
-    receipt = dict(metadata or {})
-    receipt.update(version=1, author='djultra64', status='installed', backup=BACKUP, files={})
+    receipt = dict(metadata)
+    receipt.pop('_previous_receipt_sha256', None)
+    receipt.update(version=1, author='djultra64', status='installed',
+                   backup=metadata.get('backup', BACKUP), files=dict(metadata.get('files', {})))
+    if upgrading:
+        receipt['updates'] = list(metadata.get('updates', [])) + [
+            {'backup': backup_name, 'payload_manifest_sha256': metadata['payload_manifest_sha256'],
+             'previous_receipt_sha256': digest(previous_receipt)}]
     try:
         backup.mkdir(mode=0o700, parents=True, exist_ok=False)
         backup_created = True
+        if previous_receipt is not None:
+            _write_exclusive(backup/RECEIPT, previous_receipt)
         for name, path in paths.items():
             # Repeat link validation immediately before reading and writing.
             safe_path(game, name)
@@ -361,7 +485,10 @@ def apply_changes(game: Path, changes: dict[str, bytes], metadata: dict | None =
                     paths[name].unlink(missing_ok=True)
                 else:
                     _replace_bytes(paths[name], previous[name])
-            receipt_path.unlink(missing_ok=True)
+            if previous_receipt is None:
+                receipt_path.unlink(missing_ok=True)
+            else:
+                _replace_bytes(receipt_path, previous_receipt)
             if backup_created:
                 shutil.rmtree(backup)
             for directory in created_dirs:
