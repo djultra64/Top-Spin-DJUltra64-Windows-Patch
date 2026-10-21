@@ -1,66 +1,76 @@
-# Windows instructions
+# Windows installation and use
 
 Own work: **djultra64**.
 
-The public repository contains development source, not a Windows installer or a downloadable complete game. The steps below distinguish source component builds from use of an already assembled private candidate. Start with [Building and research](building.md) for input restrictions and extraction. WSL may be used for extraction/assembly tools; the frozen launcher and game must be checked in native Windows.
+## Requirements
 
-## Use an assembled private candidate
+Use Windows 10/11 with a graphics driver supporting the included Direct3D 11 presentation path, .NET Framework 4 for the direct Play executable, and your own compatible Top Spin PC game folder. The patch includes its installer and launcher runtimes; you do not need to install Python or Lua.
 
-Keep the complete folder together in a user-writable location. Do not mix files from different candidates. No system Python is needed when the frozen launcher runtime is included.
+Use a folder your account can write to. Close the game and launcher before installation. The patch does not include the original game or a key, and it does not add a CD-key/licensing bypass.
 
-| Action | Entry point |
+## Install the release ZIP
+
+1. Download [TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.1.0/TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip) from [v0.1.0](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.1.0).
+2. Extract its contents directly into the folder containing `TopSpin.exe`. Do not leave the patch inside an extra nested folder.
+3. Double-click **`Install-Patch.cmd`**. Wait for **Patch installed successfully**.
+4. Open **`TopSpinLauncher.exe`**, adjust settings if desired and select **Save settings** or **Play**.
+5. For later sessions, use **`Play-TopSpin.exe`** to launch immediately with saved settings.
+
+After extraction, the folder should look like this:
+
+```text
+Your game folder/
+  TopSpin.exe
+  Config.pml
+  Media/
+  Install-Patch.cmd
+  .topspin-patch/
+```
+
+Extraction stages installer files. The installer checks the executable, original menu/font variants and payload hashes, generates the changes, and only then writes game files. It adds the compatibility/input hooks, prompt resources, Quit Game row, launcher and graphics runtime. Originals replaced by the installer are saved under `.portable/backups/topspin-patch-v1`; `.portable/patch-install.json` records the installation.
+
+Keep the backup and receipt. They can contain original game content and personal configuration, so do not upload them. The installer preserves the configuration's Security section and existing keyboard profiles and keeps existing `T`/`U` saves. Re-running the same installer recognizes an intact installation; it refuses to overwrite a conflicting backup or a modified installation.
+
+## Supported executable versions
+
+The SHA-256 of `TopSpin.exe` must be one of these exact values:
+
+| Input | SHA-256 |
 | --- | --- |
-| Configure graphics and controls | `TopSpinLauncher.exe` |
-| Start with saved settings | `Play-TopSpin.exe` |
-| Compatibility direct entry | `Play-TopSpin.cmd` |
+| Supported source input | `0bb3090d37956daa625faf917854c84f0263f4472c9235abf1f4c0d68721fe79` |
+| Supported earlier assembled input | `ae971be61f8ba0c1c7a21f8ed1a51f5725e26d10d5a3813ef2f199354b7eef97` |
+| Supported Windows assembled input | `1360e0819c49ee1c8acaffc7c3b01f57f89af74409d3e2b633931afe0f8d9a9f` |
 
-Open the configurator, choose settings, then select **Save settings** or **Play**. Render resolution is the internal 16:9 image, up to 3840 × 2160; display resolution is the output size and must suit your screen. The game-specific dgVoodoo2 runtime is required for distinct internal/output sizes. Full screen uses borderless presentation. The corrected gameplay camera is 16:9; original menus may remain stretched.
+Matching resource variants are also required. Already changed menu/font archives without a matching installation receipt are not interchangeable with original resources. Support for these inputs does not establish compatibility with every retail edition or identify an untouched original-media executable.
 
-Keep **Frame generation** disabled. Windows frame generation is not implemented. Original gameplay stays at 50 FPS and replay/cinematic timing at 30 FPS; raising the game's update rate can accelerate simulation.
-
-Select a manual **Controller button style** if automatic prompts do not match your controller. Xbox, PlayStation and Nintendo Switch layouts are distinct. Switch south/east/west/north buttons are **B / A / Y / X**, compared with Xbox **A / B / X / Y**. Optional mappings apply by action to menus and gameplay. **Auto detect (experimental)** attempts last-device prompt switching but still needs real-device visual validation. Hardware checks currently cover only the available Ally controller.
-
-The new Quit Game row has been tested in Linux. Windows shutdown guards have static checks, but a native in-game Quit test remains outstanding. Save compatibility and gameplay checks also remain separate from launcher/integrity checks.
-
-## Build and run launcher source
-
-Install official CPython 3.10 or newer for Windows, including Tcl/Tk. From PowerShell in the repository root:
+To inspect your executable from PowerShell in the game folder:
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m tkinter
-.\.venv\Scripts\python.exe -m launcher --game-dir 'C:\path\to\private-candidate' --diagnose
-.\.venv\Scripts\python.exe -m launcher --game-dir 'C:\path\to\private-candidate'
+Get-FileHash .\TopSpin.exe -Algorithm SHA256
 ```
 
-Close the Tk check window before continuing. `--diagnose` inspects the launch plan without starting the game. A basic extracted candidate can open the configurator, but controller families/remapping need the separately assembled native input/font runtime. Different render/output sizes need the separately staged Windows graphics runtime. Source launcher startup alone does not establish that the full game integration is ready.
+An unsupported executable is rejected before game writes. Keep your own original files; do not replace them with an unknown download to satisfy a hash check.
 
-For direct launch after saving valid settings:
+## Graphics and controls
 
-```powershell
-.\.venv\Scripts\python.exe -m launcher --game-dir 'C:\path\to\private-candidate' --play
-```
+Defaults are **3840 × 2160 render / 1920 × 1080 output**, full-screen presentation, English and Xbox 360 prompts. The game-specific dgVoodoo2 runtime presents the internal backbuffer at the selected output size. Choose an output size supported by your screen; lower the render size if needed. Gameplay uses the corrected 16:9 camera. Original menus can stretch.
 
-## Build the frozen entry points
+Original timing stays at **50 FPS gameplay / 30 FPS replays and cinematics** with synchronization enabled. Windows frame generation/interpolation is not included; leave Frame generation off.
 
-Run this on Windows with official CPython/Tk and a fresh work directory:
+Choose **Controller button style** for Keyboard, Xbox, PlayStation or Nintendo Switch. Optional bindings map actions to physical positions in both menus and gameplay. Switch south/east/west/north positions are **B / A / Y / X**, while Xbox uses **A / B / X / Y**. **Auto detect (experimental)** follows the last active device where available; select a manual family when you want fixed prompts or detection is ambiguous.
 
-```powershell
-python -m venv build\windows-launcher-venv
-.\build\windows-launcher-venv\Scripts\python.exe -m pip install -r native\launcher\requirements-build.txt
-.\build\windows-launcher-venv\Scripts\python.exe -m tools.windows_runtime --work build\windows-launcher-build
-python -m tools.windows_direct --destination build\Windows-Direct-Entry
-```
+## Settings, saves and Steam
 
-The configurator output is under `build\windows-launcher-build\dist\TopSpinLauncher`. Keep `TopSpinLauncher.exe` with `runtime-windows-launcher`. The direct entry needs Windows .NET Framework 4. See [the native launcher build guide](../native/launcher/README.md) for staging and self-tests. Building these components does not create a playable game package.
+Launcher settings are in `.portable/launcher.json`; game options/profiles are under local `T` and `U` folders. Keep them when moving or backing up your copy. Do not mix runtime files from different releases.
 
-The Windows graphics helper is `tools.windows_graphics.stage_dgvoodoo`; it requires the exact official dgVoodoo2 2.87.5 archive and original redistribution documentation. It copies the unmodified x86 D3D8 component and preserves Dege's notices. There is no general-purpose installer CLI for the complete graphics/executable integration. Do not substitute arbitrary wrapper versions or describe the helper as a validated patch for all retail editions.
+**Check game files for integrity** reports missing or changed immutable game/runtime files. Settings and saves are excluded. **Add to Steam** saves settings and registers a shortcut; it may close and reopen Steam normally. After moving the game folder, remove the old Steam shortcut and add it again.
 
-## Settings, saves and diagnostics
+## Troubleshooting
 
-Launcher settings are in `.portable/launcher.json`; game options/profiles are under local `T` and `U` folders. Preserve them when backing up or moving a candidate. Logs are in `.portable/logs`, and native input initialization status is in `.portable/input-status.txt`.
+For an unsupported executable or resource error, check the hashes and use your own matching game files. Do not disable the version checks. For a payload checksum error, extract a fresh copy of the release ZIP and keep the entire `.topspin-patch` folder together.
 
-Use **Check game files for integrity** for missing/changed package files. A frozen launcher also supports `--self-test` and `--verify-files`; see [the native launcher guide](../native/launcher/README.md). Neither mode starts the game or proves gameplay compatibility.
+For permission errors, use a user-writable game folder. If installation reports an interrupted operation or conflicting backup, keep `.portable/backups/topspin-patch-v1`, `.portable/patch-install.json` and any `.portable/install.lock` while investigating; deleting them removes recovery information. There is no automatic uninstall command in this release.
 
-**Add to Steam** saves current settings and registers a shortcut; it may close and reopen Steam normally. After moving the folder, remove the old shortcut and add it again. Keep all source media, generated game resources, keys and complete private packages out of public uploads.
+Logs are in `.portable/logs`; native controller initialization status is in `.portable/input-status.txt`. Developer launcher builds and diagnostic commands are described in [Building](building.md) and [the native launcher guide](../native/launcher/README.md).
+
+When reporting a problem on GitHub, share the error text and relevant hashes, never your original game files, generated resources, configuration containing keys, or private backup.

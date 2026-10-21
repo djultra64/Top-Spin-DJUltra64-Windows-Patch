@@ -1,48 +1,82 @@
-# Building and research
+# Build the patch and components
 
 Own work: **djultra64**.
 
-This is a source/research workflow. It can extract a compatible local source tree and prepare an early compatibility candidate. It does **not** reproduce all features of the privately assembled Windows/Linux candidates in one step, and it is not a public installer. Keep every output containing original or modified game files private.
+For normal Windows installation, use [the release instructions](windows.md). This page covers source development and assembly of the public patch ZIP. A public patch archive contains project source and redistributable runtime components; complete extracted/portable game packages remain private.
 
-## Requirements
+## Development requirements
 
-Use Python 3.10 or newer and install `requirements.txt` into a virtual environment. Source GUI use additionally requires Python's Tcl/Tk module. The extraction/preparation commands below are intended for Linux or WSL with `cabextract` and GNU binutils (`as`, `objcopy`). Native input compilation also needs GCC with `-m32` support and a GNU linker supporting `i386pe`. Windows launcher freezing must run on Windows with CPython/Tk; see [Windows](windows.md).
+Use Python 3.10 or newer with the packages in `requirements.txt`. Source GUI use needs Tcl/Tk. Linux/WSL extraction and assembly need `cabextract` and GNU binutils (`as`, `objcopy`); native input compilation also needs GCC with `-m32` support and a linker supporting `i386pe`. Freeze the Windows launcher on Windows with official CPython/Tk. The release installer bundles its own CPython 3.14 runtime, Pillow and compatible Lua compiler.
 
-Run commands from the repository root. For example, on a development Linux system:
+Run source commands from the repository root:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m tkinter
 ```
 
-The last command opens a Tk check window; close it before continuing. Install Tcl/Tk through your operating system if it is missing. Install system build tools through your distribution's package manager.
+The compatible executable hashes are listed in [Windows instructions](windows.md). Font and menu transformations also check exact input hashes. Do not remove those guards to force an unknown edition through the tools. Input provenance and a clean original-media baseline are separate from matching a known development hash.
 
-## Input compatibility
+## Public Windows release assembly
 
-The executable patch accepts only this exact SHA-256 value:
+`tools.build_patch_release` builds the ZIP from an explicit reviewed binary manifest and a private original-file inventory. It does not scan private build folders for arbitrary files. The manifest identifies each component's source, allowlisted destination, SHA-256 and required notice files; portability stubs and the compatible Lua compiler have explicit build roles.
 
-```text
-0bb3090d37956daa625faf917854c84f0263f4472c9235abf1f4c0d68721fe79
+```sh
+python -m tools.build_patch_release --help
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Windows-Patch-v0.1.0.zip --reviewed-binaries /path/to/reviewed-binaries.json --original-inventory /path/to/private-source-inventory.json
 ```
 
-It identifies the supplied development input, **not a verified clean retail baseline**. The extraction tool checks MSI sizes/hashes and explicitly recognizes a small set of known source variants; accepting one of those variants is not proof that it is an untouched retail file. See `tools/build_portable.py` and `tools/patch_game.py` for the checks. Unknown executable editions and unsupported font/menu variants are rejected. Do not remove the hash guards or change offsets to force a different edition through the tools.
+Choose a fresh output path. The builder checks hashes, path safety, allowed destinations, required component roles, upstream notices and known original-game hashes. It rejects original game content and private game-data file types. Preserve the original-file inventory privately; do not publish it with the release.
 
-The existing source layout expected by `tools.prepare_portable` is:
+The archive's root contains `Install-Patch.cmd` and `.topspin-patch`. The payload includes launcher/input/graphics runtimes, project source, notices, patch stubs and compatible Lua/Python tooling. It contains no prepatched `TopSpin.exe`, game menu archives, generated game fonts or key. The installer generates those changes locally from the user's compatible files.
 
-```text
-<local-media>/TopSpin.msi
-<local-media>/<external cabinets named by the MSI>
-<local-media>/program files/Atari/TopSpin/TopSpin.exe
-<local-media>/program files/Atari/TopSpin/Config.pml
+`tools.install_patch` validates and plans the full change set before game writes. It preserves replaced originals under `.portable/backups/topspin-patch-v1`, creates an installation receipt and rolls back replaced files if an ordinary installation error occurs. A matching receipt allows recognition of an intact installation. It refuses an unknown executable, unsupported resources, corrupted payload or conflicting backup.
+
+For a developer validation without changing game files, use a complete staged payload:
+
+```sh
+python -m tools.install_patch --game-dir /path/to/compatible-private-game --payload /path/to/staged/.topspin-patch --check
 ```
 
-Other loose MSI files must also be present where the media layout expects them. A lone installed `TopSpin.exe` is insufficient. Obtain files from your own media; this repository does not provide them or a key. A clean original-media baseline still needs investigation before a generally applicable patch can be released.
+The Lua compiler in the Windows release is a Windows executable; this command needs an environment that can execute that compiler. The Windows command entry point supplies the bundled interpreter automatically. `--check` still performs resource compilation in temporary storage.
 
-## Extract and prepare an early candidate
+## Build Windows launcher components
 
-Use a **new private destination**. Extraction rejects an existing destination. Preparation rewrites the candidate executable and configuration, so do not point it at your installed game, an existing save-bearing package, or your media.
+On Windows, with official CPython including Tcl/Tk:
+
+```powershell
+python -m venv build\windows-launcher-venv
+.\build\windows-launcher-venv\Scripts\python.exe -m pip install -r native\launcher\requirements-build.txt
+.\build\windows-launcher-venv\Scripts\python.exe -m tools.windows_runtime --work build\windows-launcher-build
+python -m tools.windows_direct --destination build\Windows-Direct-Entry
+```
+
+Keep the resulting `TopSpinLauncher.exe` with its `runtime-windows-launcher` directory. The direct Play entry requires .NET Framework 4. See [the native launcher guide](../native/launcher/README.md) for staging and diagnostic commands.
+
+The game-specific graphics helper, `tools.windows_graphics.stage_dgvoodoo`, accepts the exact official dgVoodoo2 2.87.5 archive and original redistribution documentation. It copies the unmodified x86 D3D8 component with Dege's notices. Windows interpolation is developed separately and is not part of v0.1.0.
+
+## Other source components
+
+Build the project's freestanding PE32 input DLL with:
+
+```sh
+python -m tools.native_input build/native-input
+```
+
+This builds only the owned DLL. The release assembly separately includes SDL3, the executable loading stub, controller assets and font-generation source. Generated game font/archive outputs belong only in the user's game folder.
+
+The Quit Game delta needs Lua 5.0.3 with the game's bytecode format. The format patch is in `patches/lua50-topspin-format.patch`. To generate a separate local menu output:
+
+```sh
+python -m tools.menu_quit /path/to/original/MainMenu.rui /path/to/private-output/MainMenu.rui --lua /path/to/compatible/lua
+```
+
+The delta checks the original archive/chunks and preserves original menu animation. The installer combines it with font changes automatically.
+
+## Private extraction and research workflow
+
+The extraction tools expect a local media layout containing `TopSpin.msi`, its external cabinets and loose files, including `program files/Atari/TopSpin/TopSpin.exe` and `Config.pml`. A lone installed executable is insufficient. Use your own media and a fresh output:
 
 ```sh
 mkdir -p reports
@@ -51,48 +85,16 @@ python -m tools.prepare_portable --source /path/to/local-media --destination dis
 python -m tools.verify_build --destination dist/Research-Candidate --inventory reports/source-inventory.json
 ```
 
-Extraction writes `reports/source-inventory.json`; keep it private because it describes your local game files. Preparation applies the version-checked executable changes, corrects the camera aspect, creates local `T`/`U` save roots, preserves the original 50 FPS timing, selects English, disables the game FPS counter and stages launcher source. The original configuration's Security section is retained; generated configuration may contain your key and must stay private.
+This older research path extracts a full private game, applies the basic compatibility settings and stages launcher source. It does not perform the complete public Windows install pipeline. Preparation rewrites its destination's executable/configuration; use a new candidate rather than your installed game or save-bearing package.
 
-Verification checks the declared files and hashes. It does not prove rendering, controller behavior, game progress or save compatibility. The generated `portable-build.json` is a development record, not release certification.
+`tools.package_portable` copies a complete assembled candidate into a private package. That output contains game files and may contain personal configuration; it is not the public release ZIP and must not be uploaded.
 
-## Additional components
+Linux runtime assembly is described in [the Linux guide](linux.md). It uses a separate coherent dependency stack, with glibc 2.42 as the current runtime floor.
 
-The early candidate above does not include the complete native input runtime, generated prompt fonts, video/graphics dependencies, final backbuffer patch, frozen launchers or Quit Game menu changes. Those were assembled and validated separately in private candidates.
-
-The following commands inspect/build individual project components without supplying game code:
-
-```sh
-python -m tools.native_input build/native-input
-python -m tools.menu_quit --help
-python -m tools.windows_runtime --help
-python -m tools.windows_direct --help
-python -m tools.linux_runtime --help
-```
-
-`tools.native_input` builds the project's PE32 DLL; it does not install SDL3, patch an executable to load the hook, or extend game fonts. The local font planner in `tools/glyph_install.py` only accepts the declared original font/texture hashes. There is no complete public installation command for that integration yet.
-
-The Quit Game delta requires a compatible **Lua 5.0.3** interpreter matching the game's bytecode header and the exact original menu archive. Build the dedicated interpreter with [the source patch and recipe](lua-bytecode.md). It writes a separate private output:
-
-```sh
-python -m tools.menu_quit /path/to/original/MainMenu.rui /path/to/private-output/MainMenu.rui --lua /path/to/compatible/lua
-```
-
-Do not replace a game's menu with an unverified output. The delta preserves original menu data and animation and rejects unknown or already patched input. See [Windows](windows.md) and [Linux](linux.md) for platform runtime requirements.
-
-## Tests and private packaging
-
-The complete suite is available with:
+## Tests
 
 ```sh
 python -m unittest discover -s tests
 ```
 
-Tests needing private version-locked media, extracted fixtures, compiler tools or staged dependencies report a skip when those prerequisites are unavailable. A clean source checkout can run the independent tests without game files. A supplied executable fixture must still match its supported hash; incompatible fixtures fail rather than being treated as missing. Synthetic launcher/input tests do not constitute real-controller validation. Set `TOPSPIN_TEST_EXE` only to a private supported executable fixture when running those integration tests.
-
-After a complete candidate has been assembled and validated, the package tool can make a **private local copy** using its original inventory:
-
-```sh
-python -m tools.package_portable /path/to/assembled-candidate /path/to/new-private-package --inventory reports/source-inventory.json --platform windows
-```
-
-Choose `--platform linux` for a Linux copy. Output contains game files and may contain personal configuration. Never publish it, its ZIP, the extracted source, or generated game resources to GitHub. Public source publication and a future distributable patch are separate operations.
+Some integration tests require private version-locked media, compiler tools or staged dependencies. Keep those fixtures local. Do not infer availability of those fixtures from the public source checkout.

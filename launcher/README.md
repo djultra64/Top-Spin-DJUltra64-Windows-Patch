@@ -1,53 +1,49 @@
-# Top Spin Portable
+# Top Spin launcher
 
-Own integration: **djultra64**. This private package contains your game files. Do not publish the complete game folder or its ZIP. A public source-only patch is a separate deliverable.
+Own integration: **djultra64**. Install the Windows patch into your own compatible game using [the installation guide](../docs/windows.md). The patch includes launcher runtimes; original game files and keys are not included.
 
 ## Start
 
-There are two entry points:
-
-| Action | Windows | Linux |
+| Action | Windows | Complete Linux candidate |
 | --- | --- | --- |
-| Configure graphics and controls | **TopSpinLauncher.exe** | **TopSpinLauncher.sh** |
-| Play immediately with the last saved settings | **Play-TopSpin.exe** | **Play-TopSpin.sh** |
+| Configure graphics and controls | `TopSpinLauncher.exe` | `TopSpinLauncher.sh` |
+| Play with saved settings | `Play-TopSpin.exe` | `Play-TopSpin.sh` |
 
-The direct Play entry does not open the configurator. Keep both entry points in the portable folder with their runtime files. The private Python/Tk runtime is included; Python does not need to be installed. On Windows, **Play-TopSpin.cmd** remains a compatibility shortcut.
+The direct Play entry opens the game with saved settings. Keep the entry points and their runtime folders together. On Windows, `Play-TopSpin.cmd` is an alternative direct shortcut. The Windows release includes its own Python/Tk runtime. Linux uses a separately assembled runtime; the Windows installer ZIP is not a native Linux package.
 
-Choose settings, then **Save settings** or **Play**. Settings stay in `.portable/launcher.json`. The launcher preserves the game's Security section and original keyboard profile. Game options and saved profiles stay under the local `T` / `U` folders. Keep these folders when moving or backing up your copy.
+Choose settings, then **Save settings** or **Play**. Launcher settings stay in `.portable/launcher.json`. The launcher preserves the game's Security section and original keyboard profile. Game options and profiles stay under local `T`/`U` folders; keep them when moving or backing up the game.
 
 ## Graphics
 
-- **Render resolution** selects the internal 16:9 image, up to 3840×2160.
-- **Display resolution** selects the output window. On Windows, the included game-specific D3D8 wrapper and window sizing present the internal backbuffer at this size. Choose a size your display supports.
-- **Full screen** uses a borderless window on Windows.
-- Gameplay uses the corrected 16:9 camera. Original menus may remain stretched.
-- Original timing stays enabled: **50 FPS gameplay / 30 FPS replays and cinematics**. Native uncapping that accelerated simulation is excluded.
-- **Frame generation** is implemented in the Linux graphics runtime. It inserts presentation frames without changing the game's update limit. **Windows frame generation is not included.**
+- **Render resolution** selects the internal 16:9 image, up to 3840 × 2160.
+- **Display resolution** selects the output size. Windows uses the game-specific D3D8 wrapper; a complete Linux runtime uses Gamescope. Choose an output supported by your display.
+- **Full screen** uses borderless presentation on Windows.
+- Gameplay uses the corrected 16:9 camera. Original menus can remain stretched.
+- Timing stays at **50 FPS gameplay / 30 FPS replays and cinematics** with synchronization enabled.
+- **Frame generation** is available through the Linux runtime. Windows interpolation is not included in v0.1.0; leave this option off on Windows.
 
-The Linux package requires x86-64 Linux with **glibc 2.42 or newer**, compatible Vulkan graphics drivers, and Proton 11 installed through Steam. The launcher finds Proton automatically and hides its folder selector when available. If it cannot find Proton, it shows **Browse** as a manual fallback. This build does not support older Linux runtime ABIs; they require a separate dependency build. Proton and graphics overrides apply only to the child game process.
+Windows installation defaults are 3840 × 2160 render / 1920 × 1080 output, English and Xbox 360 prompts. The game FPS counter is disabled, and **Quit Game** is available in the main menu.
+
+The Linux runtime needs x86-64 Linux with glibc 2.42 or newer, Vulkan, X11/Xwayland and an existing Steam Proton 11 installation. The launcher finds Proton in known Steam locations; **Browse** appears when a manual selection is needed.
 
 ## Controllers
 
-The input adapter reads SDL's physical button positions and adapts them inside this game. Xbox 360, Xbox One/Series, PlayStation 4/5 and Nintendo Switch layouts have separate prompt artwork. Real-hardware validation is limited to the available Ally controller; other devices still need hardware checks.
+Choose **Controller button style** for Keyboard, Xbox, PlayStation or Nintendo Switch prompts. Manual styles stay selected when changing input devices. **Auto detect (experimental)** attempts to follow the last active device; manual selection provides a fixed family when detection is ambiguous.
 
-Choose **Controller button style** to prepare fixed prompts before starting the game: **Keyboard**, Xbox, PlayStation or Nintendo Switch. Manual styles stay selected when switching input devices. **Auto detect (experimental)** attempts to follow the last active device; its visible prompts are not yet validated. Nintendo's south/east/west/north buttons are **B / A / Y / X**.
+Actions map to physical positions. Xbox south/east/west/north buttons are **A / B / X / Y**; Nintendo Switch uses **B / A / Y / X**. Optional button mappings apply to both menus and gameplay so actions and their prompts follow the same positions. The keyboard profile and other player assignments are preserved. Sticks, D-pad and independent triggers retain the original directional timing/deadzone behavior.
 
-The optional button bindings apply to **both menus and gameplay**, so prompts and actions use the same physical positions. The keyboard profile and other player assignments are preserved. Sticks, D-pad and independent triggers use the original directional timing/deadzone behavior.
+Controller prompt artwork is by Nicolae (Xelu) Berbece, updated by Paul Paun, under CC0. dgVoodoo2 is an unmodified component by Dege supplied for this specific Top Spin mod. Included dependency notices preserve their authentic attribution.
 
-Prompt artwork: Nicolae (Xelu) Berbece, updated by Paul Paun, CC0. Authentic notices are retained under `runtime/input/artwork`. dgVoodoo2 is an unmodified component by Dege supplied for this specific Top Spin mod; see `runtime/windows/licenses`.
+## Integrity and Steam
 
-## Check game files for integrity
+**Check game files for integrity** compares SHA-256 checksums of immutable game, patch and runtime files and reports missing/modified files. Settings and saves are excluded. The local manifest is a corruption check, not an authenticity signature.
 
-This action calculates SHA-256 checksums of the package's immutable game, patch and runtime files. It reports missing or modified files without starting the game. Settings and saves are excluded. The local manifest detects accidental corruption; it is not an authenticity signature or a gameplay test.
+**Add to Steam** saves settings, detects the local account and adds a shortcut. It closes Steam normally if necessary and reopens it afterward. Account selection appears when local account information is ambiguous. Existing shortcuts and artwork are preserved or backed up as appropriate; repeating the action does not create a duplicate entry for the same game folder.
 
-## Add to Steam
+On Linux, leave Steam's forced compatibility tool disabled because the launcher selects Proton. After moving the game folder, remove the old shortcut and add it again. Steam artwork is used only when it is available locally; the public patch does not include original game artwork.
 
-Click **Add to Steam**. The launcher saves the current settings, detects the active or most recently used Steam account, closes Steam normally if needed, and adds **Top Spin** with its icon, logo, background and both covers. If Steam was open, it reopens automatically afterward. Account selection appears only if Steam's local account information is ambiguous.
+## Diagnostics and backups
 
-A backup is kept beside `shortcuts.vdf`; unrelated shortcuts retain their original bytes. Previous **Top Spin Portable** entries from this folder are renamed while preserving their shortcut ID. Repeating the operation does not add a duplicate. Replaced artwork is backed up; other games' artwork is preserved. If Steam does not finish closing, no shortcut is written. On Linux, leave Steam's forced compatibility tool disabled: this launcher selects Proton itself. After moving the folder, remove the old Steam shortcut and add it again from the new location. Flatpak Steam execution has not been validated.
+Logs are in `.portable/logs`; native controller initialization status is in `.portable/input-status.txt`. Windows diagnostic modes `--self-test <absolute result.json>` and `--verify-files <absolute result.json>` run without starting the game; see [the native launcher guide](../native/launcher/README.md).
 
-## Diagnostics
-
-Logs are in `.portable/logs`. Native input initialization status is in `.portable/input-status.txt`. The Windows launcher supports `--self-test <absolute result.json>` and `--verify-files <absolute result.json>` for checks without starting a game.
-
-Do not infer speed, geometry, save compatibility or controller hardware validation from a successful launcher or integrity check. Platform testing and its remaining limits are recorded separately in the project validation report.
+Installer originals are under `.portable/backups/topspin-patch-v1`, and the receipt is `.portable/patch-install.json`. Keep these files for recovery. Backups, generated game resources, personal keys and complete game folders belong only in your private installation, not public uploads.
