@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import zipfile
 from tools.build_patch_release import (
-    BINARY_DESTINATIONS, LINUX_SOURCE_ONLY_FILES, FRAMEGEN_DESTINATIONS, FRAMEGEN_NOTICES, FRAMEGEN_DXVK_LICENSE, SOURCE_FILES, SOURCE_ONLY_FILES, build_release, prepare_payload, safe_name)
+    BINARY_DESTINATIONS, LINUX_ISO_SOURCE_FILES, LINUX_SOURCE_ONLY_FILES, FRAMEGEN_DESTINATIONS, FRAMEGEN_NOTICES, FRAMEGEN_DXVK_LICENSE, SOURCE_FILES, SOURCE_ONLY_FILES, build_release, prepare_payload, safe_name)
 
 
 def sha(data): return hashlib.sha256(data).hexdigest()
@@ -56,7 +56,7 @@ class PatchReleaseTests(unittest.TestCase):
             'video_libraries': ['runtime/linux/lib64/libvideo.so'],
             'video_plugins': 'runtime/linux/gstreamer-1.0', 'library_path': 'runtime/linux/lib64'}
         data = {
-            'runtime/python/bin/python3': b'#!/bin/sh\nprintf "%s\\n" "$PYTHONHOME" "$PYTHONPATH" "$LD_LIBRARY_PATH" "$@" > "$PATCH_TEST_MARKER"\nprintf \'{"metadata":true}\\n\'\nprintf \'synthetic diagnostic\\n\' >&2\nexit "${PATCH_TEST_FAIL:-0}"\n',
+            'runtime/python/bin/python3': b'#!/bin/sh\nprintf "%s\\n" "$PYTHONHOME" "$PYTHONPATH" "$LD_LIBRARY_PATH" "$TK_LIBRARY" "$TCL_LIBRARY" "$@" > "$PATCH_TEST_MARKER"\nprintf \'{"metadata":true}\\n\'\nprintf \'synthetic diagnostic\\n\' >&2\nexit "${PATCH_TEST_FAIL:-0}"\n',
             'runtime/linux/check-abi.sh': b'#!/bin/sh\nexit ' + (b'1' if abi_failure else b'0') + b'\n',
             'runtime/linux/bin/gamescope': b'#!/bin/sh\nexit 0\n',
             'runtime/linux/lib64/libvideo.so': b'\x7fELFsynthetic-video-library',
@@ -161,6 +161,74 @@ class PatchReleaseTests(unittest.TestCase):
                 destination = root / 'blocked.tar.gz'
                 with self.assertRaises(ValueError): build_release(root, destination, reviewed, inventory)
                 self.assertFalse(destination.exists())
+
+    def linux_iso_fixture(self, root, **kwargs):
+        reviewed, inventory = self.linux_fixture(root, **kwargs)
+        reviewed['install_mode'] = 'iso'
+        for name in LINUX_ISO_SOURCE_FILES:
+            path = root / name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(('own-installer-source:' + name).encode())
+        payload = b'#!/bin/sh\nexit 0\n'
+        source = 'build/reviewed/cabextract.bin'; (root / source).write_bytes(payload)
+        reviewed['files'].append({'source': source, 'destination': 'runtime/linux/bin/cabextract',
+            'sha256': sha(payload), 'executable': True, 'notices': ['licenses/own.txt']})
+        return reviewed, inventory
+
+    def test_linux_iso_tar_has_one_installer_folder_safe_modes_and_unchanged_payload_schema(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); reviewed, inventory = self.linux_iso_fixture(root)
+            destination = root / 'iso-setup.tar.gz'; build_release(root, destination, reviewed, inventory)
+            with tarfile.open(destination) as archive:
+                members = archive.getmembers()
+                self.assertTrue(all(member.name.startswith('TopSpin-Installer/') and member.isfile() for member in members))
+                self.assertEqual(archive.getmember('TopSpin-Installer/Install-TopSpin.sh').mode, 0o755)
+                self.assertFalse(any(member.name.endswith('/Install-Patch.sh') for member in members))
+                base = 'TopSpin-Installer/.topspin-patch/'
+                manifest = json.load(archive.extractfile(base + 'manifest.json'))
+                self.assertEqual(set(manifest), {'version', 'author', 'platform', 'files', 'stubs', 'lua'})
+                for name in LINUX_ISO_SOURCE_FILES:
+                    self.assertIn(name, manifest['files'])
+                    self.assertEqual(archive.getmember(base + manifest['files'][name]['path']).mode, 0o644)
+                cabextract = manifest['files']['runtime/linux/bin/cabextract']
+                self.assertTrue(cabextract['executable'])
+                self.assertEqual(archive.getmember(base + cabextract['path']).mode, 0o755)
+
+    def test_linux_iso_bootstrap_supports_gui_and_cli_and_keeps_abi_gate_before_python(self):
+        for arguments, abi_failure in (([], False), (['--iso', '/owned game.iso', '--destination', '/new game'], False), ([], True)):
+            with self.subTest(arguments=arguments, abi_failure=abi_failure), tempfile.TemporaryDirectory() as folder:
+                root = Path(folder); reviewed, inventory = self.linux_iso_fixture(root, abi_failure=abi_failure)
+                destination = root / 'iso.tar.gz'; build_release(root, destination, reviewed, inventory)
+                install = root / 'Unpacked Installer'; install.mkdir()
+                with tarfile.open(destination) as archive: archive.extractall(install, filter='data')
+                marker = root / 'python-was-run'
+                result = subprocess.run([str(install / 'TopSpin-Installer/Install-TopSpin.sh'), *arguments],
+                    env={**os.environ, 'PATCH_TEST_MARKER': str(marker), 'PATCH_TEST_FAIL': '0'},
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 1 if abi_failure else 0, result.stderr)
+                self.assertEqual(marker.exists(), not abi_failure)
+                if not abi_failure:
+                    lines = marker.read_text().splitlines()
+                    self.assertIn('launcher.installer', lines)
+                    self.assertIn('--payload', lines)
+                    self.assertNotIn('--game-dir', lines)
+                    self.assertIn(str(install / 'TopSpin-Installer/.topspin-patch/files/runtime/python/share/tk9.0'), lines)
+                    self.assertIn(str(install / 'TopSpin-Installer/.topspin-patch/files/runtime/python/share/tcl9.0'), lines)
+                    if arguments: self.assertEqual(lines[-len(arguments):], arguments)
+                    self.assertIn('{"metadata":true}', result.stdout)
+                    self.assertIn('synthetic diagnostic', result.stderr)
+                    self.assertFalse((install / 'TopSpin-Installer/.topspin-patch/install.log').exists())
+
+    def test_iso_mode_rejects_windows_and_missing_extraction_runtime_before_archive(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); reviewed, inventory = self.fixture(root)
+            reviewed['install_mode'] = 'iso'
+            with self.assertRaisesRegex(ValueError, 'Linux'): prepare_payload(root, reviewed, inventory)
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); reviewed, inventory = self.linux_iso_fixture(root)
+            reviewed['files'] = [item for item in reviewed['files'] if item.get('destination') != 'runtime/linux/bin/cabextract']
+            destination = root / 'blocked.tar.gz'
+            with self.assertRaisesRegex(ValueError, 'Incomplete'): build_release(root, destination, reviewed, inventory)
+            self.assertFalse(destination.exists())
 
     def framegen_fixture(self, root, reviewed, mutation=None):
         manifest_name = '.portable/windows-framegen.json'

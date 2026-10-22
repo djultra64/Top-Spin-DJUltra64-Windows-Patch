@@ -2,7 +2,7 @@
 
 A compatibility patch for the original PC version of **Top Spin**, by **djultra64**. Includes an English launcher, corrected 16:9 gameplay camera, rendering up to **3840 × 2160**, local saves and controller prompts for Xbox, PlayStation and Nintendo Switch.
 
-The patch contains project code and redistributable dependencies. **You need your own compatible installation of the game.** Original game executables, assets and keys are not included.
+The patch contains project code and redistributable dependencies. **You need your own compatible PC copy: installed game files on Windows, or a game ISO on Linux.** Original game executables, assets and keys are not included.
 
 ## Download and install on Windows
 
@@ -15,14 +15,14 @@ Upgrading from Windows v0.1.0 or v0.2.0 uses the same steps and preserves existi
 
 ## Download and install on Linux / Proton
 
-Requires **x86-64 Linux, glibc 2.42 or newer, Vulkan, X11/Xwayland and Steam Proton 11**. Python/Tk, Gamescope, video playback libraries and the Linux interpolation layer are included; Steam, Proton and GPU drivers remain external requirements.
+Requires **x86-64 Linux, glibc 2.42 or newer, Vulkan, X11/Xwayland and Steam Proton 11**. The installer includes Python/Tk, ISO/CAB extraction tools, Gamescope, video libraries and the Linux interpolation layer. Steam, Proton and GPU drivers remain external.
 
-1. Download [TopSpin-DJUltra64-Linux-Proton-Patch-v0.2.1.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Linux-Proton-Patch-v0.2.1.tar.gz) from [the v0.2.1 release](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/tag/v0.2.1).
-2. Close the game and extract the archive **directly into the game folder containing `TopSpin.exe`**.
-3. Run **`sh ./Install-Patch.sh`** from that folder. The installer validates the compatible game/resources and payload, then keeps replaced originals in a private local backup.
-4. Configure with **`./TopSpinLauncher.sh`**; launch saved settings with **`./Play-TopSpin.sh`**.
+1. Download [TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.3.0/TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz) and extract it into a normal folder, such as Downloads.
+2. Open a terminal in the extracted **TopSpin-Installer** folder and run **`./Install-TopSpin.sh`**.
+3. In **Top Spin Setup**, choose your own compatible game ISO and a **new installation folder**, then select **Install**. The default destination is `~/Games/Top Spin`; existing folders are never overwritten.
+4. When setup finishes, select **Open configurator**, or open **`TopSpinLauncher.sh`** in the installed game folder. Use **`Play-TopSpin.sh`** for later sessions with saved settings.
 
-No system Python or manual runtime staging is needed. The optional [Linux runtime source companion](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz) provides corresponding dependency source and is not needed to install or play. See [Linux installation](docs/linux.md) for commands, Proton discovery and backups. Use the archive for your operating system; Windows and Linux installers do not upgrade one another's installations.
+Setup extracts and patches the game automatically. It leaves the ISO unchanged, requires no administrator access or system Python, and does not start the game automatically. [Linux instructions](docs/linux.md) include the graphical and terminal workflows. The optional [Linux runtime source companion](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz) is unnecessary for installation or play.
 
 ## Features
 
@@ -46,9 +46,9 @@ As of **October 20, 2026**, we have not found the original PC release for sale t
 
 ## Compatibility and other platforms
 
-The installer accepts only the executable hashes listed in [Windows instructions](docs/windows.md) and the matching game resource variants. It rejects unsupported versions instead of applying offsets blindly. These supported inputs are not a claim of compatibility with every retail edition. No new CD-key or licensing bypass is implemented.
+The installers validate known executables and matching game resources as described in the [Windows instructions](docs/windows.md) and [Linux ISO instructions](docs/linux.md). It rejects unsupported versions instead of applying offsets blindly. These supported inputs are not a claim of compatibility with every retail edition. No new CD-key or licensing bypass is implemented.
 
-Separate Windows ZIP and Linux/Proton tar.gz assets are available in the same release. The Linux runtime requires glibc 2.42 or newer; it does not provide compatibility with older Linux ABIs. See [Linux requirements](docs/linux.md) and [the runtime support notes](docs/linux-runtime-support.md).
+Windows uses the v0.2.1 patch ZIP; Linux uses the v0.3.0 ISO installer tar.gz. The Linux runtime requires glibc 2.42 or newer; it does not provide compatibility with older Linux ABIs. See [Linux requirements](docs/linux.md) and [the runtime support notes](docs/linux-runtime-support.md).
 
 For component builds and release assembly, see [Building](docs/building.md). For launcher controls, see [the launcher reference](launcher/README.md).
 

@@ -1,3 +1,4 @@
 olefile==0.47
 pefile==2024.8.26
 Pillow==11.3.0
+pycdlib==1.22.0

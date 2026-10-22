@@ -73,21 +73,45 @@ def read_tables(path: Path) -> dict:
         return tables
 
 def safe_name(value: str) -> str:
+    if not isinstance(value,str):raise ValueError('MSI filenames must be text')
+    if value.count('|')>1:raise ValueError('MSI filenames support at most one short|long alias pair')
     name = value.split('|')[-1]
-    if not name or name in ('.', '..') or any(c in name for c in '/\\:\x00'):
+    reserved={'con','prn','aux','nul'}|{f'{prefix}{i}' for prefix in ('com','lpt') for i in range(1,10)}
+    if (not name or len(name)>255 or name in ('.', '..') or name.endswith((' ','.'))
+            or name.split('.')[0].casefold() in reserved
+            or any(ord(c)<32 or ord(c)==127 or c in '/\\:\x00<>"?*' for c in name)):
         raise ValueError(f'Unsafe MSI filename: {value!r}')
     return name
 
 def file_layout(tables: dict) -> list:
     dirs = {d['id']: d for d in tables['Directory']}
     components = {c['id']: c for c in tables['Component']}
+    files=tables['File']
+    if (len(dirs)!=len(tables['Directory']) or len(components)!=len(tables['Component'])
+            or len({f['id'].casefold() for f in files})!=len(files) or len(files)>100000):
+        raise ValueError('Duplicate or excessive MSI identifiers')
+    if (any(type(f['size']) is not int or not 0<=f['size']<=2**31
+            or type(f['sequence']) is not int or f['sequence']<=0
+            or safe_name(f['id'])!=f['id'] for f in files)
+            or sum(f['size'] for f in files)>16*1024**3):
+        raise ValueError('Invalid MSI file identifiers, sequences or size limits')
     # Source layout begins under the install directory, independent of ProgramFilesFolder.
-    install = next(d['id'] for d in dirs.values()
-                   if d['name'].split(':')[0].split('|')[-1].lower() == 'topspin')
+    def ancestors(key):
+        result=set()
+        while key:
+            if key in result or len(result)>=64:raise ValueError('Cyclic MSI directory tree')
+            result.add(key);key=dirs[key]['parent']
+        return result
+    chains=[ancestors(components[f['component']]['directory']) for f in files]
+    installs=[d['id'] for d in dirs.values()
+              if d['name'].split(':')[0].split('|')[-1].lower() == 'topspin'
+              and chains and all(d['id'] in chain for chain in chains)]
+    if len(installs)!=1:raise ValueError('MSI must declare one TopSpin install directory')
+    install=installs[0]
     def directory(key, seen=()):
         if key == install:
             return PurePosixPath('.')
-        if key in seen:
+        if key in seen or len(seen)>=64:
             raise ValueError('Cyclic MSI directory tree')
         row = dirs[key]
         if not row['parent']:

@@ -9,6 +9,8 @@ installed over the game. Role installer_python identifies runtime-installer/pyth
 whose reviewed python314._pth must include ../files for the bundled own sources.
 A reviewed platform=linux selects a .tar.gz archive, its bundled Linux interpreter
 and executable descriptors; missing platform preserves the legacy Windows ZIP.
+Linux install_mode=iso places an ISO setup entrypoint in TopSpin-Installer/,
+without adding fields to the patch payload manifest.
 """
 import argparse
 import hashlib
@@ -31,6 +33,8 @@ SOURCE_FILES = tuple('launcher/' + name + '.py' for name in (
     'portable/TopSpinLauncher.sh', 'portable/TopSpinLauncher.cmd',
     'portable/Play-TopSpin.sh', 'portable/Play-TopSpin.cmd',
     'NOTICE.md', 'licenses/lua-5.0.3/COPYRIGHT')
+LINUX_ISO_SOURCE_FILES = ('launcher/installer.py', 'tools/iso_install.py',
+    'tools/msi_reader.py', 'tools/build_portable.py')
 LINUX_SOURCE_ONLY_FILES = ('patches/gamescope-sdl-clean-shutdown.patch',
     'tools/check_linux_runtime.sh', 'tools/sanitize_linux_gamescope.py')
 SOURCE_ONLY_FILES = (
@@ -146,6 +150,9 @@ def prepare_payload(root, reviewed, original_inventory):
     platform = reviewed.get('platform', 'windows')
     if platform not in {'windows', 'linux'}:
         raise ValueError('Unsupported patch release platform')
+    install_mode = reviewed.get('install_mode', 'patch')
+    if install_mode not in {'patch', 'iso'} or install_mode == 'iso' and platform != 'linux':
+        raise ValueError('ISO installation mode requires a Linux release')
     denied = {item['sha256'] for item in original_inventory['files']}
     if not denied or not all(re.fullmatch('[0-9a-f]{64}', value) for value in denied):
         raise ValueError('A complete private original-file inventory is required')
@@ -187,6 +194,9 @@ def prepare_payload(root, reviewed, original_inventory):
         for name in LINUX_SOURCE_ONLY_FILES:
             add('sources/' + name, checked_read(root, name))
         overlay('Linux-Readme.md', checked_read(root, 'docs/linux.md'))
+        if install_mode == 'iso':
+            for name in LINUX_ISO_SOURCE_FILES:
+                overlay(name, checked_read(root, name))
     # Only this reviewed CC0 subset; never copy artwork or arbitrary asset trees.
     provenance = json.loads(checked_read(root, 'assets/input/xelu/provenance.json'))
     if provenance['license'] != 'CC0-1.0':
@@ -244,11 +254,14 @@ def prepare_payload(root, reviewed, original_inventory):
                     raise ValueError('Executable flags require boolean Linux descriptors')
                 overlay(name, data, executable)
     required = LINUX_REQUIRED_DESTINATIONS if platform == 'linux' else BINARY_DESTINATIONS
+    if install_mode == 'iso': required = required | {'runtime/linux/bin/cabextract'}
     missing = required - manifest['files'].keys()
     if missing or STUB_ROLES - manifest['stubs'].keys() or 'lua' not in manifest or platform == 'windows' and not ({'ApplyPatch.exe', 'runtime-installer/python.exe'} & output.keys()):
         raise ValueError('Incomplete ' + platform + ' patch payload; missing runtime, compiler, stubs or installer: ' + ', '.join(sorted(missing)))
     if platform == 'linux':
-        for name in ('runtime/python/bin/python3', 'runtime/linux/check-abi.sh'):
+        bootstrap_files = ['runtime/python/bin/python3', 'runtime/linux/check-abi.sh']
+        if install_mode == 'iso': bootstrap_files.append('runtime/linux/bin/cabextract')
+        for name in bootstrap_files:
             if not manifest['files'][name].get('executable'):
                 raise ValueError('Linux bootstrap file must be executable: ' + name)
         from tools.install_patch import validate_linux_runtime
@@ -299,7 +312,7 @@ def prepare_payload(root, reviewed, original_inventory):
 
 
 
-def _build_linux_release(destination, output):
+def _build_linux_release(destination, output, install_mode='patch'):
     if not destination.name.endswith('.tar.gz'):
         raise ValueError('Linux patch releases use a .tar.gz destination')
     manifest = json.loads(output['manifest.json'])
@@ -341,13 +354,40 @@ else
     exit "$status"
 fi
 '''
+    prefix = 'TopSpin-Installer/' if install_mode == 'iso' else ''
+    entrypoint = 'Install-TopSpin.sh' if install_mode == 'iso' else 'Install-Patch.sh'
+    if install_mode == 'iso':
+        command = b'''#!/bin/sh
+# ISO setup bootstrap, own integration: djultra64.
+set -eu
+root="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+files="$root/.topspin-patch/files"
+python_root="$files/runtime/python"
+# Use the system shell to reject unsupported ABI before loading bundled ELF.
+sh "$files/runtime/linux/check-abi.sh" || exit $?
+if [ ! -x "$python_root/bin/python3" ]; then
+    printf '%s\n' 'The packaged Python interpreter is missing or not executable.' >&2
+    exit 1
+fi
+export PYTHONHOME="$python_root"
+export PYTHONPATH="$files"
+export PYTHONNOUSERSITE=1
+export LD_LIBRARY_PATH="$python_root/lib64"
+export TK_LIBRARY="$python_root/share/tk9.0"
+export TCL_LIBRARY="$python_root/share/tcl9.0"
+cd -- "$root"
+if [ "$#" -gt 0 ]; then
+    printf '%s\n' 'Preparing Top Spin installation.'
+fi
+exec "$python_root/bin/python3" -s -m launcher.installer --payload "$root/.topspin-patch" "$@"
+'''
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryFile() as staged:
         with tarfile.open(fileobj=staged, mode='w:gz') as archive:
-            for name, data, mode in [('Install-Patch.sh', command, 0o755)] + [
+            for name, data, mode in [(entrypoint, command, 0o755)] + [
                     ('.topspin-patch/' + name, data, 0o755 if name in executable else 0o644)
                     for name, data in sorted(output.items())]:
-                info = tarfile.TarInfo(name)
+                info = tarfile.TarInfo(prefix + name)
                 info.size = len(data)
                 info.mode = mode
                 info.uid = info.gid = 0
@@ -365,7 +405,7 @@ def build_release(root, destination, reviewed, original_inventory):
         raise ValueError('Choose a fresh archive destination')
     output = prepare_payload(root, reviewed, original_inventory)
     if reviewed.get('platform', 'windows') == 'linux':
-        return _build_linux_release(destination, output)
+        return _build_linux_release(destination, output, reviewed.get('install_mode', 'patch'))
     # Extraction changes only the patch staging directory and the new entrypoint.
     if 'runtime-installer/python.exe' in output:
         interpreter = '"%~dp0.topspin-patch\\runtime-installer\\python.exe" -I -m tools.install_patch'

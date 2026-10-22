@@ -43,13 +43,19 @@ The Lua compiler in the Windows release is a Windows executable; this command ne
 
 ## Public Linux / Proton release assembly
 
-The same builder emits the Linux tar.gz when the reviewed manifest has `"platform": "linux"`. Supply an explicit reviewed list of Linux interpreter/Tk, Gamescope, Xwayland support, the coherent full video stack, Linux AFMF, compatible native Lua, controller DLLs and upstream notices. The public payload contains executable modes for scripts and ELF programs. Steam, Proton and GPU vendor drivers remain external.
+The ISO-based setup archive uses a reviewed manifest with `"platform": "linux"` and `"install_mode": "iso"`. Supply the same reviewed Python/Tk, Gamescope, Xwayland, video, AFMF, Lua and controller runtimes, plus pinned PyCdlib 1.22.0 and the executable `runtime/linux/bin/cabextract`. Steam, Proton and GPU drivers remain external.
 
 ```sh
-python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Proton-Patch-v0.2.1.tar.gz --reviewed-binaries /path/to/reviewed-linux-binaries.json --original-inventory /path/to/private-source-inventory.json
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz --reviewed-binaries /path/to/reviewed-linux-iso-binaries.json --original-inventory /path/to/private-source-inventory.json
 ```
 
-Choose a fresh archive destination. The root contains the POSIX `Install-Patch.sh` and `.topspin-patch`; extraction preserves modes. The installer runs its ABI preflight before the bundled interpreter, performs the same version/resource checks and locally generates the game changes. A Linux payload/receipt is distinct from Windows, and cross-platform upgrades are rejected. No original executable, menu/font archive, key, save or private backup belongs in either public archive.
+Choose a fresh archive destination. The archive contains `TopSpin-Installer/Install-TopSpin.sh` and its `.topspin-patch` payload. The shell runs its ABI preflight before loading the bundled Python/Tk. Without arguments, `launcher.installer` opens setup; `--iso PATH --destination PATH` runs the same operation without a graphical display.
+
+`tools.iso_install` reads the image without mounts or executing its autorun/MSI. It locates the game database, copies only its declared cabinets and loose files, reconstructs the private game with `tools.build_portable`, then applies the existing Linux patch and verifies the result. Cabinet filenames, identifiers and lengths are checked before decompression. Extraction and temporary copies use the destination filesystem. The completed folder is published with atomic no-replace semantics; existing destinations and unrelated files are preserved.
+
+The runtime source companion below still matches the unchanged graphics/media libraries. The setup archive additionally contains PyCdlib source and the exact cabextract source RPM under `licenses/linux-installer/sources`, with upstream notices and SHA-256 provenance. No original executable, MSI, cabinet, game resource, key, ISO or private backup may enter the public archive.
+
+For the previous patch-in-place format, omit `install_mode` from the reviewed Linux manifest. The builder then emits the legacy root `Install-Patch.sh` and `.topspin-patch` layout. Windows output remains separate and unchanged.
 
 To reproduce the Linux graphics runtime inputs, `tools.linux_runtime` expects an RPM-based host with `/usr/lib64`, Gamescope, Xwayland, GStreamer core/WMV plugins, XKB data, `ldd`, `readelf` and `rpm`, plus a separately built 64-bit Linux AFMF layer and its notices. Stage into a new private candidate:
 
