@@ -21,7 +21,7 @@ Use your own lawfully obtained ISO of the supported PC version. The ISO must pro
 
 ## Download and open setup
 
-1. Download [TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.3.0/TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz).
+1. Download [TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.3.1/TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz).
 2. Extract it into a normal folder such as Downloads. **Keep this installer folder separate from the new game destination.**
 3. Open a terminal in the extracted `TopSpin-Installer` folder and run `./Install-TopSpin.sh`.
 4. In **Top Spin Setup**, select **Browse…** beside **Game ISO** and choose your ISO.
@@ -30,7 +30,7 @@ Use your own lawfully obtained ISO of the supported PC version. The ISO must pro
 For example:
 
 ```sh
-tar -xzf /path/to/TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz -C "$HOME/Downloads"
+tar -xzf /path/to/TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz -C "$HOME/Downloads"
 cd "$HOME/Downloads/TopSpin-Installer"
 ./Install-TopSpin.sh
 ```
@@ -81,9 +81,17 @@ Preserve `.portable/launcher.json` and local `T`/`U` save folders when backing u
 
 The installed patch keeps replaced original game files under `.portable/backups/topspin-patch-v1` with receipt `.portable/patch-install.json`. These are private game content and configuration; do not upload them. The ISO setup creates a fresh installation rather than upgrading an existing game directory. Keep separate game copies when using both Windows and Linux.
 
-**Check game files for integrity** checks immutable package hashes; settings and saves are excluded. **Add to Steam** saves settings and may close/reopen Steam normally while adding the shortcut. Leave Steam's forced compatibility tool disabled because the launcher selects Proton. After moving the folder, remove the old shortcut and add it again.
+**Check game files for integrity** checks immutable package hashes; settings and saves are excluded.
+
+In Linux v0.3.1, **Add to Steam** first prepares the icon, logo, background and both cover formats. Missing or damaged images are downloaded from the user-selected SteamGridDB URLs and checked against pinned hashes. Internet access is required for this first download or a cache repair; valid cached artwork works offline. The cache is local to `artwork/steam`, and valid custom PNGs are preserved. No artwork images are bundled in the public installer, and setup/normal game launch does not download them automatically.
+
+The launcher shows download progress before closing Steam. If a download fails, Steam remains open and no shortcut is changed. After artwork is ready, the launcher waits for Steam to finish shutting down before installing the shortcut and four grid images, then reopens Steam if it was running. Existing artwork for the shortcut is backed up when replaced; other games' images are preserved. Select the same action again to reuse the cache and refresh an existing shortcut without duplicating it.
+
+Leave Steam's forced compatibility tool disabled because the launcher selects Proton. After moving the folder, remove the old shortcut and add it again.
 
 ## Troubleshooting
+
+Version 0.3.1 includes the matching Gamescope process helper and isolates host dialogs from the game's private graphics/video libraries. Keep the complete runtime together; replacing individual helper wrappers or mixing runtime versions can reintroduce startup failures. If launch closes immediately, inspect `.portable/logs/launch.log` and use **Check game files for integrity** to identify missing or modified runtime files.
 
 An ABI error means this installer/runtime needs a supported newer host or a separate dependency build for your distribution. The setup script checks the ABI before loading bundled Python. For missing Proton, install Proton 11 through Steam or select its directory in the launcher.
 

@@ -273,19 +273,63 @@ def _start_client(root,platform,shutdown=False):
                                 stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 
 
+
+def _linux_process_identity(process):
+    """Identify this user's live PID by start time, without trusting its name."""
+    try:
+        if process.stat().st_uid!=os.getuid():return None
+        fields=(process/'stat').read_text().rsplit(')',1)[1].split()
+        if fields[0]=='Z' or len(fields)<20 or not fields[19].isdecimal():return None
+        return process.name,fields[19]
+    except (OSError,IndexError):return None
+
+
+def _linux_shutdown_identities(steam_root):
+    """Capture main clients before comm changes; validate known PID-file owners."""
+    root=Path(steam_root).resolve();identities=set();pid_owners=set()
+    for path in (root/'steam.pid',Path.home()/'.steam/steam.pid'):
+        try:
+            if not path.is_file():continue
+            with path.open() as stream:value=stream.read(32).strip()
+            if value.isascii() and value.isdecimal() and 0<int(value)<=0x7fffffff:
+                pid_owners.add(str(int(value)))
+        except OSError:continue
+    try:processes=list(PROC_ROOT.iterdir())
+    except OSError:return identities
+    for process in processes:
+        if not process.name.isdecimal():continue
+        identity=_linux_process_identity(process)
+        if identity is None:continue
+        try:
+            named=(process/'comm').read_text().strip()=='steam'
+            # A stale PID file must not make us wait for an unrelated program.
+            owned=False
+            if process.name in pid_owners:
+                executable=Path(os.readlink(process/'exe'))
+                owned=executable.name=='steam' and executable.is_relative_to(root)
+            if named or owned:identities.add(identity)
+        except OSError:continue
+    return identities
+
+
 def close_steam(steam_root,*,platform=None,timeout=45):
     platform=platform or sys.platform
     if not isinstance(timeout,(int,float)) or not 0<timeout<=45:
         raise ValueError('Steam shutdown timeout must be between 0 and 45 seconds.')
-    if not steam_is_running(platform):return False
+    tracked=_linux_shutdown_identities(steam_root) if platform=='linux' else set()
+    if not steam_is_running(platform) and not tracked:return False
     process=_start_client(steam_root,platform,shutdown=True)
     deadline=time.monotonic()+timeout
-    while steam_is_running(platform):
+    def linux_shutdown_pending():
+        tracked.update(_linux_shutdown_identities(steam_root))
+        alive=any(_linux_process_identity(PROC_ROOT/pid)==(pid,start) for pid,start in tracked)
+        return alive or process.poll() is None
+    while steam_is_running(platform) or (platform=='linux' and linux_shutdown_pending()):
         if time.monotonic()>=deadline:
             process.poll()
             raise TimeoutError('Steam did not close in time. No shortcut files were changed.')
         time.sleep(0.2)
-    process.poll()
+    if platform!='linux':process.poll()
     return True
 
 

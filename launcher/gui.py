@@ -1,6 +1,7 @@
 """Mouse/keyboard graphical launcher. Own work: djultra64."""
 from pathlib import Path
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -12,7 +13,7 @@ from launcher.settings import Settings, RESOLUTIONS
 from launcher.controllers import ACTIONS, NAMES
 from launcher.steam import shortcut_spec, write_shortcut
 from launcher.steam_client import discover_accounts, select_account, close_steam, reopen_steam, steam_is_running
-from launcher.steam_artwork import install_artwork, validate_artwork
+from launcher.steam_artwork import ensure_artwork, install_artwork
 from launcher.integrity import verify_integrity
 
 
@@ -172,7 +173,6 @@ def show_launcher(game: Path,settings: Settings):
         try:
             target=game/('TopSpinLauncher.exe' if sys.platform=='win32' else 'TopSpinLauncher.sh')
             if not target.is_file():raise ValueError('The packaged launcher entry point was not found.')
-            if (game/'artwork/steam').is_dir():validate_artwork(game)
             accounts=discover_accounts(steam_locations(dict(os.environ),sys.platform))
             if not accounts:raise ValueError('No Steam user profile was found. Sign in to Steam once, then try again.')
             def install(account):
@@ -181,7 +181,8 @@ def show_launcher(game: Path,settings: Settings):
                     messagebox.showerror('Add to Steam',str(exc),parent=window);return
                 running[0]=True
                 for button in buttons:button.state(['disabled'])
-                status.set('Adding Top Spin to Steam. Steam will close briefly if it is open…')
+                status.set('Preparing Steam artwork… Steam may close briefly after the download.')
+                updates=queue.Queue()
                 def complete(message,error):
                     running[0]=False
                     for button in buttons:button.state(['!disabled'])
@@ -191,18 +192,31 @@ def show_launcher(game: Path,settings: Settings):
                 def worker():
                     error=None;message='Unable to add Top Spin to Steam.';closed=False
                     try:
+                        artwork=ensure_artwork(game,progress=lambda text:updates.put(('progress',text)))
+                        updates.put(('progress','Adding Top Spin to Steam. Steam will close briefly if it is open…'))
+                        spec=shortcut_spec(game)
+                        if not spec.get('icon'):spec['icon']=str(artwork['icon'])
                         closed=close_steam(account.steam_root)
-                        appid=write_shortcut(account.shortcuts_path,shortcut_spec(game),
+                        appid=write_shortcut(account.shortcuts_path,spec,
                                              steam_running=steam_is_running())
-                        message='Top Spin added to Steam for '+account.display_name+'.'
-                        if (game/'artwork/steam').is_dir():install_artwork(game,account.shortcuts_path,appid)
+                        install_artwork(game,account.shortcuts_path,appid)
+                        message='Top Spin and artwork added to Steam for '+account.display_name+'.'
                     except (OSError,ValueError,subprocess.SubprocessError) as exc:error=exc
                     finally:
                         if closed:
                             try:reopen_steam(account.steam_root)
                             except (OSError,ValueError,subprocess.SubprocessError) as exc:
                                 if error is None:error=exc
-                        window.after(0,lambda:complete(message,error))
+                        updates.put(('complete',(message,error)))
+                def poll_updates():
+                    while True:
+                        try:kind,value=updates.get_nowait()
+                        except queue.Empty:break
+                        if kind=='complete':
+                            complete(*value);return
+                        status.set(value)
+                    window.after(80,poll_updates)
+                window.after(0,poll_updates)
                 threading.Thread(target=worker,daemon=False).start()
             account=select_account(accounts)
             if account is not None:

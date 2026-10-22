@@ -100,8 +100,12 @@ class SteamClientLifecycleTests(unittest.TestCase):
             private=str(root/'portable/runtime/python')
             env={'PYTHONHOME':private,'PYTHONPATH':'private','TK_LIBRARY':'private','TCL_LIBRARY':'private',
                  'LD_PRELOAD':'private.so','LD_LIBRARY_PATH':private+'/lib64:/usr/lib64','PATH':'/usr/bin'}
-            with patch.dict(os.environ,env,clear=True),patch('launcher.steam_client.steam_is_running',side_effect=[True,True,False]), \
-                 patch('launcher.steam_client.subprocess.Popen',return_value=Mock()) as start,patch('launcher.steam_client.time.sleep'):
+            proc=root/'proc';proc.mkdir()
+            with patch.dict(os.environ,env,clear=True),patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client.Path.home',return_value=root/'SyntheticHome'), \
+                 patch('launcher.steam_client.steam_is_running',side_effect=[True,True,False]), \
+                 patch('launcher.steam_client.subprocess.Popen',return_value=Mock(poll=Mock(return_value=0))) as start, \
+                 patch('launcher.steam_client.time.sleep'):
                 self.assertTrue(close_steam(root,platform='linux'))
             args=start.call_args.args[0];child=start.call_args.kwargs['env']
             self.assertEqual(args,[str(root/'steam.sh'),'-shutdown'])
@@ -149,3 +153,94 @@ class SteamProcessScopeTests(unittest.TestCase):
             with patch('launcher.steam_client.PROC_ROOT',root):self.assertTrue(steam_is_running('linux'))
             (pid/'status').write_text('State:\tZ (zombie)\n')
             with patch('launcher.steam_client.PROC_ROOT',root):self.assertFalse(steam_is_running('linux'))
+
+
+class SteamShutdownCompletionTests(unittest.TestCase):
+    def make_process(self,proc,pid=42,*,comm='steam',start=100,executable=None):
+        directory=proc/str(pid);directory.mkdir(parents=True,exist_ok=True)
+        (directory/'comm').write_text(comm+'\n')
+        (directory/'status').write_text('State:\tS (sleeping)\n')
+        # Linux stat fields 3..22: state, eighteen other fields, starttime.
+        (directory/'stat').write_text(str(pid)+' ('+comm+') S '+'0 '*18+str(start)+'\n')
+        if executable is not None:(directory/'exe').symlink_to(executable)
+        return directory
+
+    def remove_process(self,directory):
+        for path in directory.iterdir():path.unlink()
+        directory.rmdir()
+
+    def test_close_waits_for_original_pid_after_steam_comm_disappears(self):
+        from launcher.steam_client import close_steam
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);proc=root/'proc';pid=self.make_process(proc)
+            sleeps=[]
+            def advance(_delay):
+                sleeps.append(True)
+                if len(sleeps)==1:(pid/'comm').write_text('shutting-down\n')
+                else:self.remove_process(pid)
+            with patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client._start_client',return_value=Mock(poll=Mock(return_value=0))), \
+                 patch('launcher.steam_client.time.sleep',side_effect=advance):
+                self.assertTrue(close_steam(root,platform='linux'))
+            self.assertEqual(len(sleeps),2,'Shutdown must wait for PID exit, not only disappearance of the steam name')
+
+    def test_live_target_pid_file_is_checked_even_after_process_name_changes(self):
+        from launcher.steam_client import close_steam
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);proc=root/'proc';steam=root/'Steam';steam.mkdir()
+            pid=self.make_process(proc,comm='shutting-down',executable=steam/'ubuntu12_32/steam')
+            (steam/'steam.pid').write_text('42\n')
+            with patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client._start_client',return_value=Mock(poll=Mock(return_value=0))) as start, \
+                 patch('launcher.steam_client.time.sleep',side_effect=lambda _:self.remove_process(pid)):
+                self.assertTrue(close_steam(steam,platform='linux'))
+            self.assertTrue(start.call_args.kwargs['shutdown'])
+
+    def test_shutdown_request_process_finishes_before_close_returns(self):
+        from launcher.steam_client import close_steam
+        with tempfile.TemporaryDirectory() as temporary:
+            proc=Path(temporary)/'proc';proc.mkdir()
+            child=Mock(poll=Mock(side_effect=[None,None,0]))
+            with patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client.steam_is_running',side_effect=[True,False,False,False]), \
+                 patch('launcher.steam_client._start_client',return_value=child), \
+                 patch('launcher.steam_client.time.sleep') as sleep:
+                self.assertTrue(close_steam(Path(temporary),platform='linux'))
+            self.assertEqual(sleep.call_count,2)
+
+    def test_recycled_original_pid_does_not_block_shutdown(self):
+        from launcher.steam_client import close_steam
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);proc=root/'proc';pid=self.make_process(proc)
+            def recycle(_delay):
+                (pid/'comm').write_text('other-app\n')
+                (pid/'stat').write_text('42 (other-app) S '+'0 '*18+'999\n')
+            with patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client._start_client',return_value=Mock(poll=Mock(return_value=0))), \
+                 patch('launcher.steam_client.time.sleep',side_effect=recycle) as sleep:
+                self.assertTrue(close_steam(root,platform='linux'))
+            self.assertEqual(sleep.call_count,1)
+
+    def test_timeout_still_refuses_changes_without_killing_lingering_pid(self):
+        from launcher.steam_client import close_steam
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);proc=root/'proc';steam=root/'Steam';steam.mkdir()
+            self.make_process(proc,comm='shutting-down',executable=steam/'ubuntu12_32/steam')
+            (steam/'steam.pid').write_text('42\n');child=Mock(poll=Mock(return_value=0))
+            with patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client._start_client',return_value=child), \
+                 patch('launcher.steam_client.time.monotonic',side_effect=[0,46]):
+                with self.assertRaises(TimeoutError):close_steam(steam,platform='linux')
+            child.kill.assert_not_called();child.terminate.assert_not_called()
+
+    def test_stale_pid_file_does_not_wait_for_a_game_under_the_steam_root(self):
+        from launcher.steam_client import close_steam
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);proc=root/'proc';steam=root/'Steam';steam.mkdir()
+            self.make_process(proc,comm='other-game',executable=steam/'steamapps/common/Other/game')
+            (steam/'steam.pid').write_text('42\n')
+            with patch('launcher.steam_client.PROC_ROOT',proc), \
+                 patch('launcher.steam_client._start_client',return_value=Mock(poll=Mock(return_value=0))) as start, \
+                 patch('launcher.steam_client.time.monotonic',side_effect=[0,46]):
+                self.assertFalse(close_steam(steam,platform='linux'))
+            start.assert_not_called()

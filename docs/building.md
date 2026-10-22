@@ -43,29 +43,39 @@ The Lua compiler in the Windows release is a Windows executable; this command ne
 
 ## Public Linux / Proton release assembly
 
-The ISO-based setup archive uses a reviewed manifest with `"platform": "linux"` and `"install_mode": "iso"`. Supply the same reviewed Python/Tk, Gamescope, Xwayland, video, AFMF, Lua and controller runtimes, plus pinned PyCdlib 1.22.0 and the executable `runtime/linux/bin/cabextract`. Steam, Proton and GPU drivers remain external.
+The ISO-based setup archive uses a reviewed manifest with `"platform": "linux"` and `"install_mode": "iso"`. Supply the reviewed Python/Tk, Gamescope, matching `gamescopereaper`, host-dialog wrapper, Xwayland, video, AFMF, Lua and controller runtimes, plus pinned PyCdlib 1.22.0 and the executable `runtime/linux/bin/cabextract`. Steam, Proton and GPU drivers remain external.
 
 ```sh
-python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Installer-v0.3.0.tar.gz --reviewed-binaries /path/to/reviewed-linux-iso-binaries.json --original-inventory /path/to/private-source-inventory.json
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz --reviewed-binaries /path/to/reviewed-linux-iso-binaries.json --original-inventory /path/to/private-source-inventory.json
 ```
 
 Choose a fresh archive destination. The archive contains `TopSpin-Installer/Install-TopSpin.sh` and its `.topspin-patch` payload. The shell runs its ABI preflight before loading the bundled Python/Tk. Without arguments, `launcher.installer` opens setup; `--iso PATH --destination PATH` runs the same operation without a graphical display.
 
 `tools.iso_install` reads the image without mounts or executing its autorun/MSI. It locates the game database, copies only its declared cabinets and loose files, reconstructs the private game with `tools.build_portable`, then applies the existing Linux patch and verifies the result. Cabinet filenames, identifiers and lengths are checked before decompression. Extraction and temporary copies use the destination filesystem. The completed folder is published with atomic no-replace semantics; existing destinations and unrelated files are preserved.
 
-The runtime source companion below still matches the unchanged graphics/media libraries. The setup archive additionally contains PyCdlib source and the exact cabextract source RPM under `licenses/linux-installer/sources`, with upstream notices and SHA-256 provenance. No original executable, MSI, cabinet, game resource, key, ISO or private backup may enter the public archive.
+The runtime source companion below supplies the corresponding third-party graphics/media sources. The project-owned Gamescope and host-dialog wrappers remain in the payload source. The setup archive additionally contains PyCdlib source and the exact cabextract source RPM under `licenses/linux-installer/sources`, with upstream notices and SHA-256 provenance. No original executable, MSI, cabinet, game resource, key, ISO or private backup may enter the public archive.
 
 For the previous patch-in-place format, omit `install_mode` from the reviewed Linux manifest. The builder then emits the legacy root `Install-Patch.sh` and `.topspin-patch` layout. Windows output remains separate and unchanged.
 
-To reproduce the Linux graphics runtime inputs, `tools.linux_runtime` expects an RPM-based host with `/usr/lib64`, Gamescope, Xwayland, GStreamer core/WMV plugins, XKB data, `ldd`, `readelf` and `rpm`, plus a separately built 64-bit Linux AFMF layer and its notices. Stage into a new private candidate:
+To reproduce the Linux graphics runtime inputs, `tools.linux_runtime` expects an RPM-based host with `/usr/lib64`, Gamescope, Xwayland, GStreamer core/WMV plugins, XKB data, `ldd`, `readelf` and `rpm`, plus a separately built 64-bit Linux AFMF layer and its notices. Pass the `gamescopereaper` produced by the same compositor build, then stage into a new private candidate:
+
+For a custom compositor, build both `src/gamescope` and `src/gamescopereaper` from the same pinned Gamescope checkout and configured SDK build. This release uses commit `c31743d9da2f788faad3b9e202a10bf6f49c75d9` and the user-installed `org.freedesktop.Sdk/x86_64/25.08` SDK, version 25.08.17; the exact SDK commit and build options are recorded in the runtime provenance. For an already configured `sdk-build` directory:
 
 ```sh
-python -m tools.linux_runtime /path/to/new-private-candidate --afmf /path/to/built/afmf-layer --video-profile all
+flatpak --user run --command=sh --filesystem=/path/to/gamescope-source org.freedesktop.Sdk/x86_64/25.08 -c 'ninja -C /path/to/gamescope-source/sdk-build src/gamescope src/gamescopereaper'
+```
+
+Use the stripped, build-RPATH-free installed binaries from that build. The staging helper initially reads the compositor from `/usr/bin/gamescope`; when supplying a custom build, replace the staged `gamescope.bin` with its reviewed, sanitized compositor binary in the same release inventory. `--reaper` selects only its matching helper, not the compositor itself. Never let the wrapper resolve a different system `gamescopereaper` through the host PATH.
+
+```sh
+python -m tools.linux_runtime /path/to/new-private-candidate --afmf /path/to/built/afmf-layer --video-profile all --reaper /path/to/matching/gamescopereaper
 ```
 
 The helper also needs `build/deps/video64/libbz2.so.1.0` and AFMF notices under `build/third-party/afmf-linux/unpacked/afmf-linux-1.3.1`. The release uses the coherent `all` video profile, not the reduced `wmv` development option. This staging command does not build the separate Python/Tk bundle or install executable hooks and generated game fonts; the reviewed release inventory must include the complete dependency set. See [runtime support](linux-runtime-support.md) for the glibc 2.42 ABI floor.
 
 The release also publishes [TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz) with corresponding Linux runtime dependency source. It is separate from the binary patch and unnecessary for normal installation. Preserve complete component notices under `runtime/linux/licenses` and `licenses/linux-runtime`.
+
+The Linux v0.3.1 launcher includes only the SteamGridDB URL/hash/dimension manifest, not the artwork images. Its explicit **Add to Steam** action downloads missing/corrupt images, validates them before cache writes, and preserves valid local artwork. Keep this runtime download separate from public archive assembly. Windows v0.2.1 frozen launcher binaries are unchanged by these source/Linux updates.
 
 ## Build Windows launcher components
 

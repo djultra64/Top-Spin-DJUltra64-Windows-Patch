@@ -5,13 +5,39 @@ shortcut workflow; this module never starts or stops Steam and never edits VDF.
 """
 from dataclasses import dataclass
 from pathlib import Path
+import hashlib
 import struct
+import urllib.parse
+import urllib.request
 import uuid
 import zlib
 from launcher.settings import atomic_write
 
 ROLES=('landscape','portrait','hero','logo')
 IMAGE_EXTENSIONS={'.png','.jpg','.jpeg','.webp','.tga','.gif','.webm'}
+
+# Fixed user-selected resources; no copyrighted artwork bytes are bundled.
+ARTWORK_SOURCES={'icon': {'url': 'https://cdn2.steamgriddb.com/icon/d3257767e94c24d25f618f96a324c780.png',
+          'sha256': '8037c8831ecc373b41150b1674b3c789cebaa46026e0ed2f33d6f425fc96ee33',
+          'width': 1024,
+          'height': 1024},
+ 'logo': {'url': 'https://cdn2.steamgriddb.com/logo/e58226fbcc883887b380d916b41c4b0e.png',
+          'sha256': 'b4f83df94ad453fe07b6bf0be9c8d3f8d796775c0b61b7a1f01d98ae13f6f262',
+          'width': 390,
+          'height': 87},
+ 'hero': {'url': 'https://cdn2.steamgriddb.com/hero/fbe0452c6aaf5ae4f65cc802298f9693.png',
+          'sha256': '609a4a62adc97a12133eb05e096106b2a6f14f26d2d47ae43f8054e2f1dff313',
+          'width': 1920,
+          'height': 620},
+ 'portrait': {'url': 'https://cdn2.steamgriddb.com/grid/5b2abbcf7c45a21a72be22e15ef5f939.png',
+              'sha256': '7f7dcdee8e81026f16f17fecea0e37f9f8d11fe2861000732715eb6389b5d9d6',
+              'width': 600,
+              'height': 900},
+ 'landscape': {'url': 'https://cdn2.steamgriddb.com/grid/f5e4f9a607bd4a71fa49cb956af7ed78.png',
+               'sha256': '32ceeb3ef8fd2444666c79861bd14ef6bf7651e58e563ea071eb3d03f49ff424',
+               'width': 920,
+               'height': 430}}
+MAX_ARTWORK_BYTES=20*1024*1024
 
 
 def _png_size(data):
@@ -59,6 +85,89 @@ def validate_artwork(game_root):
     if icon.exists():
         if icon.is_symlink() or not icon.is_file():raise ValueError('Invalid Steam artwork icon path.')
         _png_size(icon.read_bytes())
+    return paths
+
+
+def _safe_artwork_url(url):
+    parts=urllib.parse.urlsplit(url)
+    if (parts.scheme!='https' or parts.hostname!='cdn2.steamgriddb.com' or
+            parts.port not in (None,443) or parts.username is not None or
+            parts.password is not None or parts.fragment):
+        raise ValueError('Steam artwork downloads require the fixed HTTPS artwork host.')
+    return url
+
+
+class ArtworkRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self,request,response,code,message,headers,newurl):
+        _safe_artwork_url(newurl)
+        return super().redirect_request(request,response,code,message,headers,newurl)
+
+
+def fetch_artwork_image(url):
+    """Download only from the selected CDN, with a timeout and byte limit."""
+    _safe_artwork_url(url)
+    request=urllib.request.Request(url,headers={'User-Agent':'TopSpinArtwork/djultra64'})
+    opener=urllib.request.build_opener(ArtworkRedirectHandler())
+    with opener.open(request,timeout=20) as response:
+        _safe_artwork_url(response.geturl())
+        length=response.headers.get('Content-Length')
+        if length is not None and (not length.isdecimal() or int(length)>MAX_ARTWORK_BYTES):
+            raise ValueError('Steam artwork response exceeds the supported size.')
+        data=response.read(MAX_ARTWORK_BYTES+1)
+    if len(data)>MAX_ARTWORK_BYTES:
+        raise ValueError('Steam artwork response exceeds the supported size.')
+    return data
+
+
+def ensure_artwork(game_root,*,fetch=None,progress=None):
+    """Fetch missing/broken images on explicit Add; retain valid custom PNGs.
+
+    Validate every pending download before cache writes. A failed write restores
+    previous cache bytes. This function never accesses a Steam profile/process.
+    """
+    root=Path(game_root).resolve();directory=root/'artwork/steam'
+    if (root/'artwork').is_symlink() or directory.is_symlink():
+        raise ValueError('Steam artwork must stay inside the game folder.')
+    if directory.exists() and not directory.is_dir():
+        raise ValueError('Steam artwork cache must be a regular folder.')
+    fetch=fetch or fetch_artwork_image
+    paths={role:directory/(role+'.png') for role in ARTWORK_SOURCES}
+    pending={};originals={}
+    for role,path in paths.items():
+        if path.is_symlink() or path.exists() and not path.is_file():
+            raise ValueError('Invalid Steam artwork cache path: '+path.name)
+        original=path.read_bytes() if path.exists() else None
+        if original is not None:
+            try:
+                _png_size(original)
+            except ValueError:
+                pass
+            else:
+                continue
+        item=ARTWORK_SOURCES[role]
+        _safe_artwork_url(item['url'])
+        if progress:progress('Downloading Steam artwork: '+role+'…')
+        raw=fetch(item['url'])
+        if not isinstance(raw,bytes) or len(raw)>MAX_ARTWORK_BYTES:
+            raise ValueError('Unsupported Steam artwork response size: '+role)
+        if hashlib.sha256(raw).hexdigest()!=item['sha256']:
+            raise ValueError('Steam artwork checksum differs from the selected image: '+role)
+        if _png_size(raw)!=(item['width'],item['height']):
+            raise ValueError('Steam artwork dimensions differ from the selected image: '+role)
+        pending[path]=raw;originals[path]=original
+    written=[]
+    try:
+        for path,raw in pending.items():
+            if (root/'artwork').is_symlink() or directory.is_symlink() or path.is_symlink():
+                raise ValueError('Steam artwork cache path changed while downloading.')
+            atomic_write(path,raw);written.append(path)
+    except (OSError,ValueError):
+        for path in reversed(written):
+            if originals[path] is None:path.unlink(missing_ok=True)
+            else:atomic_write(path,originals[path])
+        raise
+    validate_artwork(root)
+    if progress:progress('Steam artwork is ready.')
     return paths
 
 

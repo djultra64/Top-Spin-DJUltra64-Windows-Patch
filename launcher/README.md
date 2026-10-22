@@ -40,7 +40,9 @@ Controller prompt artwork is by Nicolae (Xelu) Berbece, updated by Paul Paun, un
 
 **Add to Steam** saves settings, detects the local account and adds a shortcut. It closes Steam normally if necessary and reopens it afterward. Account selection appears when local account information is ambiguous. Existing shortcuts and artwork are preserved or backed up as appropriate; repeating the action does not create a duplicate entry for the same game folder.
 
-On Linux, leave Steam's forced compatibility tool disabled because the launcher selects Proton. After moving the game folder, remove the old shortcut and add it again. Steam artwork is used only when it is available locally; the public patch does not include original game artwork.
+In the Linux v0.3.1 release, **Add to Steam** downloads missing or damaged user-selected SteamGridDB artwork before closing Steam. The icon, logo, hero and both cover formats are checked against pinned hashes and cached under `artwork/steam`. Internet access is needed for the download or cache repair; valid local images work offline and custom PNGs are preserved. Images are not bundled in the public installer. Downloads occur only through this explicit action, not during setup or normal game launch.
+
+On Linux, leave Steam's forced compatibility tool disabled because the launcher selects Proton. After moving the game folder, remove the old shortcut and add it again. The Windows v0.2.1 binaries retain their existing local-artwork behavior; the Linux change does not update those frozen executables.
 
 ## Diagnostics and backups
 

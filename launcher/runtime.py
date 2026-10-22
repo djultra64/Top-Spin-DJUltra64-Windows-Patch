@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import os
 import sys
+import re
 from launcher.settings import Settings
 
 @dataclass
@@ -74,6 +75,26 @@ def find_proton(root: Path,settings: Settings,environ: dict) -> Path | None:
             candidate=steam/'steamapps/common'/name/'proton'
             if candidate.is_file():return candidate
     return None
+
+
+def capture_host_loader_environment(env,root,video_libraries=()):
+    """Snapshot host settings before adding the private video/compositor stack."""
+    private=(root/'runtime').resolve()
+    def owned(value):
+        path=Path(value)
+        if not path.is_absolute():path=root/path
+        return path.resolve().is_relative_to(private)
+    libraries=[entry for entry in env.get('LD_LIBRARY_PATH','').split(':') if entry and not owned(entry)]
+    preloads=[entry for entry in re.split(r'[:\s]+',env.get('LD_PRELOAD','')) if entry]
+    video_names={path.name for path in video_libraries}
+    preloads=[entry for entry in preloads if entry not in video_names and not owned(entry)]
+    for key,values in [('LD_LIBRARY_PATH',libraries),('LD_PRELOAD',preloads)]:
+        originally_set=key in env
+        if values:env[key]=':'.join(values)
+        elif originally_set and env[key]=='':env[key]=''
+        else:env.pop(key,None)
+        env['TOPSPIN_HOST_'+key+'_SET']='1' if key in env else '0'
+        env['TOPSPIN_HOST_'+key]=env.get(key,'')
 
 
 def build_launch_plan(root: Path,settings: Settings,*,platform=None,environ=None) -> LaunchPlan:
@@ -160,6 +181,7 @@ def build_launch_plan(root: Path,settings: Settings,*,platform=None,environ=None
                PROTON_DXVK_D3D8='1',SteamAppId='0',SteamGameId='0',
                WINEDEBUG='-all',DXVK_LOG_PATH=str(root/'.portable/logs'),
                DXVK_CONFIG_FILE=str(root/'dxvk.conf'))
+    capture_host_loader_environment(env,root,resolved.get('video_libraries',[]))
     library_dirs=[]
     if 'video_libraries' in resolved:
         libraries=resolved['video_libraries']

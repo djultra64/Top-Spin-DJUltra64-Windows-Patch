@@ -103,3 +103,110 @@ class ArtworkBuildTests(unittest.TestCase):
             for raw in [b'not an image',png((32,32))]:
                 with self.assertRaises(ValueError):stage_artwork(root,fetch=lambda url:raw)
                 self.assertFalse((root/'artwork').exists())
+
+
+class ArtworkDownloadTests(unittest.TestCase):
+    def synthetic_sources(self):
+        import hashlib
+        roles={'icon':(32,32), 'logo':(80,20), 'hero':(120,40),
+               'portrait':(40,60), 'landscape':(90,40)}
+        images={role:png(size) for role,size in roles.items()}
+        sources={role:{'url':'https://cdn2.steamgriddb.com/grid/'+role+'.png',
+                       'sha256':hashlib.sha256(images[role]).hexdigest(),
+                       'width':size[0], 'height':size[1]} for role,size in roles.items()}
+        return images,sources
+
+    def test_missing_public_artwork_is_fetched_and_covers_all_five_slots(self):
+        from unittest.mock import patch
+        import launcher.steam_artwork as module
+        images,sources=self.synthetic_sources();fetched=[];progress=[]
+        def fetch(url):
+            role=next(role for role,item in sources.items() if item['url']==url)
+            fetched.append(role);return images[role]
+        with tempfile.TemporaryDirectory() as temporary,patch.object(module,'ARTWORK_SOURCES',sources):
+            game=Path(temporary)/'Game';game.mkdir()
+            result=module.ensure_artwork(game,fetch=fetch,progress=progress.append)
+            self.assertEqual(set(fetched),set(images))
+            self.assertEqual(set(result),set(images))
+            self.assertEqual({role:path.read_bytes() for role,path in result.items()},images)
+            self.assertEqual(len(module.validate_artwork(game)),4)
+            self.assertTrue(progress)
+            second=module.ensure_artwork(game,fetch=lambda url:self.fail('Cached artwork was fetched again'))
+            self.assertEqual(result,second)
+
+    def test_valid_custom_art_is_preserved_and_incomplete_files_are_retried(self):
+        from unittest.mock import patch
+        import launcher.steam_artwork as module
+        images,sources=self.synthetic_sources();requested=[]
+        with tempfile.TemporaryDirectory() as temporary,patch.object(module,'ARTWORK_SOURCES',sources):
+            game=Path(temporary)/'Game';cache=game/'artwork/steam';cache.mkdir(parents=True)
+            custom=png((11,9),(1,2,3,255))
+            (cache/'landscape.png').write_bytes(custom)
+            (cache/'hero.png').write_bytes(b'incomplete PNG')
+            def fetch(url):
+                role=next(role for role,item in sources.items() if item['url']==url)
+                requested.append(role);return images[role]
+            module.ensure_artwork(game,fetch=fetch)
+            self.assertNotIn('landscape',requested)
+            self.assertEqual((cache/'landscape.png').read_bytes(),custom)
+            self.assertEqual((cache/'hero.png').read_bytes(),images['hero'])
+
+    def test_changed_remote_bytes_fail_before_any_cache_writes(self):
+        from unittest.mock import patch
+        import launcher.steam_artwork as module
+        images,sources=self.synthetic_sources()
+        with tempfile.TemporaryDirectory() as temporary,patch.object(module,'ARTWORK_SOURCES',sources):
+            game=Path(temporary)/'Game';game.mkdir()
+            def fetch(url):
+                role=next(role for role,item in sources.items() if item['url']==url)
+                return b'wrong server response' if role=='portrait' else images[role]
+            with self.assertRaisesRegex(ValueError,'checksum'):
+                module.ensure_artwork(game,fetch=fetch)
+            self.assertFalse((game/'artwork').exists())
+
+    def test_cache_write_failure_restores_incomplete_originals(self):
+        from unittest.mock import patch
+        from launcher.settings import atomic_write
+        import launcher.steam_artwork as module
+        images,sources=self.synthetic_sources();failed=False
+        with tempfile.TemporaryDirectory() as temporary,patch.object(module,'ARTWORK_SOURCES',sources):
+            game=Path(temporary)/'Game';cache=game/'artwork/steam';cache.mkdir(parents=True)
+            original=b'old partial image';(cache/'icon.png').write_bytes(original)
+            def fetch(url):
+                return images[next(role for role,item in sources.items() if item['url']==url)]
+            def fail_once(path,data):
+                nonlocal failed
+                if path.name=='hero.png' and not failed:
+                    failed=True;raise OSError('Simulated disk error')
+                atomic_write(path,data)
+            with patch.object(module,'atomic_write',side_effect=fail_once),self.assertRaises(OSError):
+                module.ensure_artwork(game,fetch=fetch)
+            self.assertEqual({p.name:p.read_bytes() for p in cache.iterdir()},{'icon.png':original})
+
+    def test_symlink_cache_is_rejected_before_network_access(self):
+        import launcher.steam_artwork as module
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);game=root/'Game';game.mkdir();external=root/'external';external.mkdir()
+            (game/'artwork').symlink_to(external,target_is_directory=True)
+            with self.assertRaises(ValueError):
+                module.ensure_artwork(game,fetch=lambda url:self.fail('Unsafe cache performed a download'))
+            self.assertEqual(list(external.iterdir()),[])
+
+    def test_network_fetch_is_bounded_and_rejects_unsafe_redirects(self):
+        from unittest.mock import Mock,patch
+        import launcher.steam_artwork as module
+        response=Mock();response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
+        response.headers={};response.geturl.return_value=module.ARTWORK_SOURCES['icon']['url']
+        response.read.return_value=b'small image bytes'
+        opener=Mock();opener.open.return_value=response
+        with patch.object(module.urllib.request,'build_opener',return_value=opener):
+            self.assertEqual(module.fetch_artwork_image(module.ARTWORK_SOURCES['icon']['url']),b'small image bytes')
+        self.assertEqual(opener.open.call_args.kwargs['timeout'],20)
+        response.read.assert_called_once_with(module.MAX_ARTWORK_BYTES+1)
+        for url in ['http://cdn2.steamgriddb.com/icon/a.png','https://unrelated.example/image.png',
+                    'https://user:password@cdn2.steamgriddb.com/icon/a.png']:
+            with self.subTest(url=url),self.assertRaises(ValueError):
+                module.fetch_artwork_image(url)
+        handler=module.ArtworkRedirectHandler()
+        with self.assertRaises(ValueError):
+            handler.redirect_request(None,None,302,'Redirect',{},'https://unrelated.example/image.png')

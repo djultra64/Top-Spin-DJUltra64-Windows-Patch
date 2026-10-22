@@ -45,6 +45,20 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(cfg.read_bytes(),b'untouched')
 
 class LaunchPlanTests(unittest.TestCase):
+    def test_host_helper_loader_snapshot_excludes_portable_libraries_and_preserves_host_values(self):
+        from launcher.runtime import capture_host_loader_environment
+        # LD_PRELOAD splits on whitespace as well as colons; the portable
+        # game itself uses basenames for that reason, while host paths survive.
+        root=Path('/own-game')
+        env={'LD_LIBRARY_PATH':str(root/'runtime/python/lib64')+':'+str(root/'runtime/linux/lib64')+':/host/steam libs',
+             'LD_PRELOAD':str(root/'runtime/linux/lib64/private.so')+':libgst-own.so:/host/overlay.so'}
+        capture_host_loader_environment(env,root,[root/'runtime/linux/lib64/libgst-own.so'])
+        self.assertEqual(env['TOPSPIN_HOST_LD_LIBRARY_PATH'],'/host/steam libs')
+        self.assertEqual(env['TOPSPIN_HOST_LD_PRELOAD'],'/host/overlay.so')
+        self.assertEqual(env['TOPSPIN_HOST_LD_PRELOAD_SET'],'1')
+        self.assertEqual(env['LD_LIBRARY_PATH'],'/host/steam libs')
+        self.assertEqual(env['LD_PRELOAD'],'/host/overlay.so')
+
     def test_native_windows_plan_has_no_shell_and_uses_game_directory(self):
         with tempfile.TemporaryDirectory(prefix='Top Spin ') as d:
             root=Path(d);(root/'TopSpin.exe').touch()
@@ -90,6 +104,9 @@ class LaunchPlanTests(unittest.TestCase):
             self.assertNotIn('LD_PRELOAD',plan.env)
             self.assertNotIn('PYTHONHOME',plan.env)
             self.assertNotIn('PYTHONPATH',plan.env)
+            self.assertEqual(plan.env['TOPSPIN_HOST_LD_LIBRARY_PATH'],'/host/libs')
+            self.assertEqual(plan.env['TOPSPIN_HOST_LD_LIBRARY_PATH_SET'],'1')
+            self.assertEqual(plan.env['TOPSPIN_HOST_LD_PRELOAD_SET'],'0')
             self.assertTrue(any(arg.endswith('runtime/video/lib:/host/libs') for arg in plan.argv))
             self.assertIn('LD_PRELOAD=libgst.so',plan.argv)
             self.assertIn('AFMF_ENABLE=1',plan.argv)

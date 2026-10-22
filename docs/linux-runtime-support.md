@@ -18,6 +18,12 @@ sh tools/check_linux_runtime.sh
 
 Both the graphics/media runtime and bundled Python/Tk independently need this ABI floor. Removing video plugins does not establish support for an older distribution.
 
+## Gamescope helpers and host libraries
+
+Linux v0.3.1 supplies the Gamescope process helper from the matching compositor build. Its launcher and dialog wrappers keep the bundled compositor/video libraries scoped to the processes that need them. A host dialog restores the original host loader environment before starting, so the system GTK/GStreamer stack does not load the game's incompatible private libraries. The bundled wrapper does not replace system libraries.
+
+Keep `runtime/linux/bin/gamescope`, `gamescope.bin`, `gamescopereaper`, `zenity` and Xwayland support files together. The preflight reports a missing or non-executable helper before starting the compositor. The host dialog executable itself comes from the operating system.
+
 ## Coherent video runtime
 
 The release uses the complete video runtime alongside Proton 11. Its GStreamer core, plugins and dependent libraries must stay together. A missing or mismatched WMV stack can produce color bars instead of menu video even when the executable starts. Restore the complete Linux payload rather than replacing individual libraries from another installation.

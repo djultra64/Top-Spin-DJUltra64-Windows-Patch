@@ -10,6 +10,8 @@ import json
 import re
 import shutil
 import subprocess
+import os
+import shlex
 from pathlib import Path
 from launcher.settings import atomic_write
 
@@ -142,6 +144,34 @@ if [ ! -f "$rt/bin/Xwayland" ] || [ ! -x "$rt/bin/Xwayland" ]; then
     printf '%s\\n' 'The bundled Xwayland executable is missing or not executable. Check game files for integrity.' >&2
     exit 1
 fi
+for helper in gamescopereaper zenity; do
+    if [ ! -f "$rt/bin/$helper" ] || [ ! -x "$rt/bin/$helper" ]; then
+        printf '%s\\n' "The bundled $helper helper is missing or not executable. Check game files for integrity." >&2
+        exit 1
+    fi
+done
+# A direct wrapper invocation also needs a clean snapshot before adding libs.
+if [ -z "${TOPSPIN_HOST_LD_LIBRARY_PATH_SET+x}" ]; then
+    if [ "${LD_LIBRARY_PATH+x}" = x ]; then
+        TOPSPIN_HOST_LD_LIBRARY_PATH_SET=1
+        TOPSPIN_HOST_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+    else
+        TOPSPIN_HOST_LD_LIBRARY_PATH_SET=0
+        TOPSPIN_HOST_LD_LIBRARY_PATH=
+    fi
+    export TOPSPIN_HOST_LD_LIBRARY_PATH_SET TOPSPIN_HOST_LD_LIBRARY_PATH
+fi
+if [ -z "${TOPSPIN_HOST_LD_PRELOAD_SET+x}" ]; then
+    if [ "${LD_PRELOAD+x}" = x ]; then
+        TOPSPIN_HOST_LD_PRELOAD_SET=1
+        TOPSPIN_HOST_LD_PRELOAD="$LD_PRELOAD"
+    else
+        TOPSPIN_HOST_LD_PRELOAD_SET=0
+        TOPSPIN_HOST_LD_PRELOAD=
+    fi
+    export TOPSPIN_HOST_LD_PRELOAD_SET TOPSPIN_HOST_LD_PRELOAD
+fi
+export PATH="$rt/bin${PATH:+:$PATH}"
 export LD_LIBRARY_PATH="$rt/lib64${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export WLR_XWAYLAND="$rt/bin/Xwayland"
 export GAMESCOPE_SCRIPT_PATH="$rt/share/gamescope/scripts"
@@ -151,17 +181,39 @@ exec "$rt/bin/gamescope.bin" "$@"
 '''
 
 
-def stage(game: Path,afmf: Path,video_profile='all'):
+def host_zenity_wrapper(executable=Path('/usr/bin/zenity')):
+    """Run the actual host dialog with its host loader environment restored."""
+    executable=Path(executable)
+    if not executable.is_absolute():raise ValueError('The host zenity path must be absolute.')
+    return '''#!/bin/sh
+# djultra64: host GTK/GStreamer must not load the game's private runtime.
+if [ "${TOPSPIN_HOST_LD_LIBRARY_PATH_SET:-0}" = 1 ]; then
+    export LD_LIBRARY_PATH="${TOPSPIN_HOST_LD_LIBRARY_PATH-}"
+else
+    unset LD_LIBRARY_PATH
+fi
+if [ "${TOPSPIN_HOST_LD_PRELOAD_SET:-0}" = 1 ]; then
+    export LD_PRELOAD="${TOPSPIN_HOST_LD_PRELOAD-}"
+else
+    unset LD_PRELOAD
+fi
+exec '''+shlex.quote(str(executable))+''' "$@"
+'''
+
+
+def stage(game: Path,afmf: Path,video_profile='all',*,reaper: Path|None=None):
     game=game.resolve();afmf=afmf.resolve()
     if not (game/'TopSpin.exe').is_file():raise ValueError('Choose an extracted game folder')
     target=game/'runtime/linux';seen={}
-    seeds=[Path('/usr/bin/gamescope'),Path('/usr/bin/Xwayland')]
+    reaper=Path(reaper) if reaper is not None else Path('/usr/bin/gamescopereaper')
+    seeds=[Path('/usr/bin/gamescope'),Path('/usr/bin/Xwayland'),reaper]
     plugins=select_video_plugins(Path('/usr/lib64/gstreamer-1.0'),video_profile)
     libraries=[Path('/usr/lib64')/('lib'+name+'-1.0.so.0') for name in GST_LIBS]
     for source in seeds+plugins+libraries+[afmf/'libafmf-linux.so']:
         if not source.is_file():raise ValueError('Runtime input missing: '+str(source))
     for source in seeds:
-        name='gamescope.bin' if source.name=='gamescope' else source.name
+        if not os.access(source,os.X_OK):raise ValueError('Runtime executable input is not executable: '+str(source))
+    for source,name in zip(seeds,['gamescope.bin','Xwayland','gamescopereaper']):
         copy_runtime_file(source,target/'bin'/name,seen)
     for source in plugins:copy_runtime_file(source,target/'gstreamer-1.0'/source.name,seen)
     for source in libraries:copy_runtime_file(source,target/'lib64'/source.name,seen)
@@ -189,6 +241,7 @@ def stage(game: Path,afmf: Path,video_profile='all'):
     shutil.copytree('/usr/share/X11/xkb',target/'share/X11/xkb',dirs_exist_ok=True)
     wrapper=gamescope_wrapper()
     (target/'bin/gamescope').write_text(wrapper);(target/'bin/gamescope').chmod(0o755)
+    (target/'bin/zenity').write_text(host_zenity_wrapper());(target/'bin/zenity').chmod(0o755)
     guard=Path(__file__).with_name('check_linux_runtime.sh')
     shutil.copy2(guard,target/'check-abi.sh')
     # Keep installed-package license/copyright notices and exact package/source
@@ -233,4 +286,5 @@ if __name__=='__main__':
     parser.add_argument('game',type=Path)
     parser.add_argument('--afmf',type=Path,default=Path('build/afmf64/layer'))
     parser.add_argument('--video-profile',choices=['all','wmv'],default='all')
-    args=parser.parse_args();print(json.dumps(stage(args.game,args.afmf,args.video_profile),indent=2))
+    parser.add_argument('--reaper',type=Path,help='Matching gamescopereaper from the compositor build')
+    args=parser.parse_args();print(json.dumps(stage(args.game,args.afmf,args.video_profile,reaper=args.reaper),indent=2))

@@ -12,6 +12,8 @@ class LinuxRuntimeTests(unittest.TestCase):
             wrapper=root/'bin/gamescope';wrapper.write_text(gamescope_wrapper());wrapper.chmod(0o755)
             guard=root/'check-abi.sh';guard.write_text('#!/bin/sh\nexit 0\n');guard.chmod(0o755)
             binary=root/'bin/gamescope.bin';binary.write_text('#!/bin/sh\nprintf COMPOSITOR_STARTED\n');binary.chmod(0o755)
+            reaper=root/'bin/gamescopereaper';reaper.write_text('#!/bin/sh\nexit 0\n');reaper.chmod(0o755)
+            zenity=root/'bin/zenity';zenity.write_text('#!/bin/sh\nexit 0\n');zenity.chmod(0o755)
             for mode in ['missing','not-executable','directory','valid']:
                 path=root/'bin/Xwayland'
                 if path.exists():
@@ -26,6 +28,42 @@ class LinuxRuntimeTests(unittest.TestCase):
                 else:
                     self.assertNotEqual(result.returncode,0);self.assertNotIn('COMPOSITOR_STARTED',result.stdout)
                     self.assertIn('Xwayland',result.stderr)
+
+    def test_compositor_selects_packaged_reaper_and_rejects_missing_helper(self):
+        import os,subprocess
+        from tools.linux_runtime import gamescope_wrapper
+        with tempfile.TemporaryDirectory(prefix='Graphics helper ') as d:
+            root=Path(d);(root/'bin').mkdir();host=root/'host';host.mkdir()
+            for path,body in [(root/'bin/Xwayland','exit 0'),(root/'bin/zenity','exit 0'),(root/'check-abi.sh','exit 0'),
+                              (root/'bin/gamescopereaper','printf PACKAGED_REAPER'),
+                              (host/'gamescopereaper','printf WRONG_HOST_REAPER'),
+                              (root/'bin/gamescope.bin','gamescopereaper')]:
+                path.write_text('#!/bin/sh\n'+body+'\n');path.chmod(0o755)
+            wrapper=root/'bin/gamescope';wrapper.write_text(gamescope_wrapper());wrapper.chmod(0o755)
+            env=dict(os.environ,PATH=str(host)+':/usr/bin:/bin')
+            result=subprocess.run([str(wrapper)],env=env,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout,'PACKAGED_REAPER')
+            (root/'bin/gamescopereaper').unlink()
+            result=subprocess.run([str(wrapper)],env=env,capture_output=True,text=True)
+            self.assertNotEqual(result.returncode,0);self.assertIn('gamescopereaper',result.stderr)
+            self.assertNotIn('WRONG_HOST_REAPER',result.stdout)
+
+    def test_zenity_shim_restores_host_loader_environment_for_real_child(self):
+        import os,subprocess
+        from tools.linux_runtime import host_zenity_wrapper
+        with tempfile.TemporaryDirectory(prefix='Host helper ') as d:
+            root=Path(d);host=root/'own-host-zenity';host.write_text('#!/bin/sh\nprintf "%s|%s|%s|%s|%s" "${LD_LIBRARY_PATH+x}" "${LD_LIBRARY_PATH-}" "${LD_PRELOAD+x}" "${LD_PRELOAD-}" "$1"\n');host.chmod(0o755)
+            shim=root/'zenity';shim.write_text(host_zenity_wrapper(host));shim.chmod(0o755)
+            env=dict(os.environ,LD_LIBRARY_PATH=str(root/'private libs'),
+                     TOPSPIN_HOST_LD_LIBRARY_PATH_SET='1',TOPSPIN_HOST_LD_LIBRARY_PATH='/host/original libs',
+                     TOPSPIN_HOST_LD_PRELOAD_SET='0')
+            env.pop('LD_PRELOAD',None)
+            result=subprocess.run([str(shim),'argument with spaces'],env=env,capture_output=True,text=True)
+            self.assertEqual(result.returncode,0,result.stderr)
+            self.assertEqual(result.stdout,'x|/host/original libs|||argument with spaces')
+            env['TOPSPIN_HOST_LD_LIBRARY_PATH_SET']='0';env['TOPSPIN_HOST_LD_PRELOAD_SET']='1';env['TOPSPIN_HOST_LD_PRELOAD']=''
+            result=subprocess.run([str(shim),'next'],env=env,capture_output=True,text=True)
+            self.assertEqual(result.stdout,'||x||next')
 
     def test_missing_native_dependency_is_reported(self):
         with self.assertRaisesRegex(ValueError,'libmissing'):
