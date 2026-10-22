@@ -45,6 +45,28 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(cfg.read_bytes(),b'untouched')
 
 class LaunchPlanTests(unittest.TestCase):
+    def test_gamescope_uses_standard_game_wsi_without_disabling_compositor_or_interpolation(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);(root/'.portable').mkdir()
+            for name in ['TopSpin.exe','runtime/proton/proton','runtime/gamescope','runtime/video/libgst.so']:
+                path=root/name;path.parent.mkdir(parents=True,exist_ok=True);path.touch()
+            layer=root/'runtime/afmf';layer.mkdir()
+            (layer/'libafmf-linux.so').touch()
+            (layer/'afmf-linux.json').write_text(json.dumps({'layer':{'name':'VK_LAYER_AFMF','library_path':'libafmf-linux.so'}}))
+            (root/'.portable/runtime.json').write_text(json.dumps({'proton':'runtime/proton/proton',
+                'gamescope':'runtime/gamescope','afmf_layer':'runtime/afmf',
+                'video_libraries':['runtime/video/libgst.so'],'video_plugins':'runtime/video'}))
+            steam=root/'Steam';steam.mkdir()
+            for enabled in [False,True]:
+                with self.subTest(frame_generation=enabled):
+                    plan=build_launch_plan(root,Settings(frame_generation=enabled),platform='linux',
+                        environ={'STEAM_ROOT':str(steam),'ENABLE_GAMESCOPE_WSI':'1','DISABLE_GAMESCOPE_WSI':'0'})
+                    self.assertEqual(plan.argv[0],str(root/'runtime/gamescope'))
+                    self.assertIn('DISABLE_GAMESCOPE_WSI=1',plan.argv)
+                    self.assertEqual(plan.env['DISABLE_GAMESCOPE_WSI'],'1')
+                    self.assertIn('AFMF_ENABLE='+str(int(enabled)),plan.argv)
+                    if enabled:self.assertIn('VK_ADD_IMPLICIT_LAYER_PATH='+str(layer),plan.argv)
+
     def test_host_helper_loader_snapshot_excludes_portable_libraries_and_preserves_host_values(self):
         from launcher.runtime import capture_host_loader_environment
         # LD_PRELOAD splits on whitespace as well as colons; the portable

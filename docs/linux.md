@@ -21,7 +21,7 @@ Use your own lawfully obtained ISO of the supported PC version. The ISO must pro
 
 ## Download and open setup
 
-1. Download [TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.3.1/TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz).
+1. Download [TopSpin-DJUltra64-Linux-Installer-v0.3.2.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.3.2/TopSpin-DJUltra64-Linux-Installer-v0.3.2.tar.gz).
 2. Extract it into a normal folder such as Downloads. **Keep this installer folder separate from the new game destination.**
 3. Open a terminal in the extracted `TopSpin-Installer` folder and run `./Install-TopSpin.sh`.
 4. In **Top Spin Setup**, select **Browse…** beside **Game ISO** and choose your ISO.
@@ -30,7 +30,7 @@ Use your own lawfully obtained ISO of the supported PC version. The ISO must pro
 For example:
 
 ```sh
-tar -xzf /path/to/TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz -C "$HOME/Downloads"
+tar -xzf /path/to/TopSpin-DJUltra64-Linux-Installer-v0.3.2.tar.gz -C "$HOME/Downloads"
 cd "$HOME/Downloads/TopSpin-Installer"
 ./Install-TopSpin.sh
 ```
@@ -90,6 +90,8 @@ The launcher shows download progress before closing Steam. If a download fails, 
 Leave Steam's forced compatibility tool disabled because the launcher selects Proton. After moving the folder, remove the old shortcut and add it again.
 
 ## Troubleshooting
+
+Version 0.3.2 uses ordinary X11/Xwayland presentation for the packaged nested Gamescope and its Proton child to avoid conflicts with inherited FROG WSI surface hooks. The launcher sets `DISABLE_GAMESCOPE_WSI=1` only for those new processes. The host Game Mode compositor and global configuration are unchanged, and the separate AFMF frame-generation option remains available.
 
 Version 0.3.1 includes the matching Gamescope process helper and isolates host dialogs from the game's private graphics/video libraries. Keep the complete runtime together; replacing individual helper wrappers or mixing runtime versions can reintroduce startup failures. If launch closes immediately, inspect `.portable/logs/launch.log` and use **Check game files for integrity** to identify missing or modified runtime files.
 

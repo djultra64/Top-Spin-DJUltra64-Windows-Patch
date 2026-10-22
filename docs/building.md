@@ -46,7 +46,7 @@ The Lua compiler in the Windows release is a Windows executable; this command ne
 The ISO-based setup archive uses a reviewed manifest with `"platform": "linux"` and `"install_mode": "iso"`. Supply the reviewed Python/Tk, Gamescope, matching `gamescopereaper`, host-dialog wrapper, Xwayland, video, AFMF, Lua and controller runtimes, plus pinned PyCdlib 1.22.0 and the executable `runtime/linux/bin/cabextract`. Steam, Proton and GPU drivers remain external.
 
 ```sh
-python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Installer-v0.3.1.tar.gz --reviewed-binaries /path/to/reviewed-linux-iso-binaries.json --original-inventory /path/to/private-source-inventory.json
+python -m tools.build_patch_release dist/TopSpin-DJUltra64-Linux-Installer-v0.3.2.tar.gz --reviewed-binaries /path/to/reviewed-linux-iso-binaries.json --original-inventory /path/to/private-source-inventory.json
 ```
 
 Choose a fresh archive destination. The archive contains `TopSpin-Installer/Install-TopSpin.sh` and its `.topspin-patch` payload. The shell runs its ABI preflight before loading the bundled Python/Tk. Without arguments, `launcher.installer` opens setup; `--iso PATH --destination PATH` runs the same operation without a graphical display.
@@ -74,6 +74,8 @@ python -m tools.linux_runtime /path/to/new-private-candidate --afmf /path/to/bui
 The helper also needs `build/deps/video64/libbz2.so.1.0` and AFMF notices under `build/third-party/afmf-linux/unpacked/afmf-linux-1.3.1`. The release uses the coherent `all` video profile, not the reduced `wmv` development option. This staging command does not build the separate Python/Tk bundle or install executable hooks and generated game fonts; the reviewed release inventory must include the complete dependency set. See [runtime support](linux-runtime-support.md) for the glibc 2.42 ABI floor.
 
 The release also publishes [TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz](https://github.com/djultra64/Top-Spin-DJUltra64-Windows-Patch/releases/download/v0.2.1/TopSpin-DJUltra64-Linux-Runtime-Sources-v0.2.1.tar.gz) with corresponding Linux runtime dependency source. It is separate from the binary patch and unnecessary for normal installation. Preserve complete component notices under `runtime/linux/licenses` and `licenses/linux-runtime`.
+
+The v0.3.2 launch planner scopes `DISABLE_GAMESCOPE_WSI=1` to its nested Gamescope and Proton child, selecting ordinary X11/Xwayland presentation to avoid inherited FROG surface-hook conflicts. It does not change the host compositor/global environment or disable the independent AFMF layer.
 
 The Linux v0.3.1 launcher includes only the SteamGridDB URL/hash/dimension manifest, not the artwork images. Its explicit **Add to Steam** action downloads missing/corrupt images, validates them before cache writes, and preserves valid local artwork. Keep this runtime download separate from public archive assembly. Windows v0.2.1 frozen launcher binaries are unchanged by these source/Linux updates.
 

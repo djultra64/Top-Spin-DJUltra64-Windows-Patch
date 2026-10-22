@@ -24,6 +24,10 @@ Linux v0.3.1 supplies the Gamescope process helper from the matching compositor 
 
 Keep `runtime/linux/bin/gamescope`, `gamescope.bin`, `gamescopereaper`, `zenity` and Xwayland support files together. The preflight reports a missing or non-executable helper before starting the compositor. The host dialog executable itself comes from the operating system.
 
+## Nested Gamescope WSI isolation
+
+Linux v0.3.2 sets `DISABLE_GAMESCOPE_WSI=1` in the environment of the packaged nested Gamescope and its Proton child. This selects ordinary X11/Xwayland presentation and avoids inherited FROG WSI surface-hook conflicts in the layered Proton/AFMF chain. The existing host Game Mode compositor keeps its environment, and no global configuration is changed. AFMF remains a separate layer and follows the launcher's **Frame generation** setting.
+
 ## Coherent video runtime
 
 The release uses the complete video runtime alongside Proton 11. Its GStreamer core, plugins and dependent libraries must stay together. A missing or mismatched WMV stack can produce color bars instead of menu video even when the executable starts. Restore the complete Linux payload rather than replacing individual libraries from another installation.

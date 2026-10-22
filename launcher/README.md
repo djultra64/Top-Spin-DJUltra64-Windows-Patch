@@ -24,6 +24,8 @@ Choose settings, then **Save settings** or **Play**. Launcher settings stay in `
 
 Fresh installation defaults on both platforms are 3840 × 2160 render / 1920 × 1080 output, English, Xbox 360 prompts and interpolation off. The game FPS counter is disabled, and **Quit Game** is available in the main menu.
 
+Linux v0.3.2 isolates the packaged nested Gamescope/Proton presentation path from inherited Gamescope WSI surface hooks. The host Game Mode compositor is unchanged; the **Frame generation** option still controls the separate AFMF layer.
+
 The Linux runtime needs x86-64 Linux with glibc 2.42 or newer, Vulkan, X11/Xwayland and an existing Steam Proton 11 installation. The launcher finds Proton in known Steam locations; **Browse** appears when a manual selection is needed.
 
 ## Controllers

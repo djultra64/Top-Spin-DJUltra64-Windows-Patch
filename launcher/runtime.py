@@ -212,6 +212,12 @@ def build_launch_plan(root: Path,settings: Settings,*,platform=None,environ=None
              'GST_PLUGIN_PATH_1_0','VK_ADD_IMPLICIT_LAYER_PATH','AFMF_ENABLE','AFMF_LOG','AFMF_MIN_FPS','AFMF_GAMESCOPE'] if key in env}
         # Graphics overrides belong to the child game, not the compositor.
         for key in child_values:env.pop(key,None)
+        # FROG's implicit WSI hook can lose surface tracking in the layered
+        # Proton/AFMF chain and when a nested compositor inherits Game Mode's
+        # activation. Use ordinary Xwayland presentation in both new processes;
+        # the existing host compositor and independent AFMF layer are unchanged.
+        env['DISABLE_GAMESCOPE_WSI']='1'
+        child_values['DISABLE_GAMESCOPE_WSI']='1'
         argv=[str(resolved['gamescope']),'--backend','sdl','-w',iw,'-h',ih,'-W',ow,'-H',oh,
               '-r','120' if settings.frame_generation else '60']+(['-f'] if settings.fullscreen else [])+[
               '--','env']+[key+'='+value for key,value in child_values.items()]+argv
